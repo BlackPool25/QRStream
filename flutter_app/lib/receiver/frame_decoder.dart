@@ -4,6 +4,8 @@
 library;
 
 import 'dart:typed_data';
+
+import 'package:flutter/services.dart';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
@@ -61,11 +63,27 @@ class MlKitFrameDecoder implements FrameDecoder {
         bytesPerRow: bytesPerRow,
       ),
     );
-    final barcodes = await _scanner.processImage(input);
-    return [
-      for (final barcode in barcodes)
-        if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
-    ];
+    try {
+      final barcodes = await _scanner.processImage(input);
+      return [
+        for (final barcode in barcodes)
+          if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
+      ];
+    } on PlatformException catch (e) {
+      // Surface the frame layout so a failing device pinpoints the path:
+      // single-plane NV21 (camera_android's own conversion) vs the 3-plane
+      // fallback, with dims/strides/byte lengths.
+      final layout =
+          'planes=${planes.length} fmt=${image.format.raw} '
+          '${image.width}x${image.height} '
+          'bytes=${planes.map((p) => p.bytes.length).toList()} '
+          'strides=${planes.map((p) => p.bytesPerRow).toList()} '
+          'pix=${planes.map((p) => p.bytesPerPixel).toList()}';
+      throw PlatformException(
+        code: e.code,
+        message: '${e.message} [${e.details}] frame=$layout',
+      );
+    }
   }
 
   /// Converts multi-plane YUV420 to a tight NV21 buffer using the camera
