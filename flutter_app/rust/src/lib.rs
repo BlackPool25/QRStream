@@ -1,15 +1,12 @@
 //! RaptorQ FFI core for the Flutter app.
 //!
-//! Wave 0 T0.3: skeleton only. The real FFI API surface is added in T2.1.
-//!
-//! The `flutter_rust_bridge` generated glue module (`frb_generated.rs`) does not
-//! exist yet — it is produced by `flutter_rust_bridge_codegen` in T1.7. Until
-//! then, the codegen reference below stays commented out so the crate compiles
-//! standalone. T2.1 populates it:
-//!
-//! ```ignore
-//! flutter_rust_bridge::frb_generated(); // requires the generated file
-//! ```
+//! Wave 1 T1.7: FRB spike. `mod api;` carries the placeholder API (the real
+//! RaptorQ surface lands in T2.1). The `bridge_generated.rs` module is produced
+//! by `flutter_rust_bridge_codegen` and injected into this file automatically.
+
+mod api;
+pub use api::*;
+mod bridge_generated;
 
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
