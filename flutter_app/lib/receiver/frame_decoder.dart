@@ -45,10 +45,12 @@ class MlKitFrameDecoder implements FrameDecoder {
     if (planes.isEmpty) return const [];
     // The camera plugin is configured for NV21, so it delivers ONE tight
     // plane (Y + interleaved VU, no row padding) — the layout ML Kit's
-    // InputImage.fromBytes accepts. Other layouts are converted defensively.
+    // InputImage.fromBytes accepts. Other layouts are converted with the
+    // plugin's own unpackPlane semantics so the output is byte-identical to
+    // what the plugin would have produced.
     final (Uint8List bytes, int bytesPerRow) =
         planes.length == 1
-            ? (planes[0].bytes, image.width)
+            ? (planes[0].bytes, planes[0].bytesPerRow)
             : (_toNv21(image), image.width);
     final input = InputImage.fromBytes(
       bytes: bytes,
@@ -66,33 +68,53 @@ class MlKitFrameDecoder implements FrameDecoder {
     ];
   }
 
-  /// Converts multi-plane YUV420 (with row/column strides) to a tight NV21
-  /// buffer — Y plane followed by interleaved VU, the Android standard.
+  /// Converts multi-plane YUV420 to a tight NV21 buffer using the camera
+  /// plugin's own `unpackPlane` semantics (row stride + pixel stride aware,
+  /// with the plane's actual row count derived from its byte length) — the
+  /// output is byte-identical to what the plugin's native NV21 conversion
+  /// produces, which ML Kit accepts.
   static Uint8List _toNv21(CameraImage image) {
     final width = image.width;
     final height = image.height;
-    final y = image.planes[0];
-    final u = image.planes[1];
-    final v = image.planes[2];
     final ySize = width * height;
     final out = Uint8List(ySize + ySize ~/ 2);
-    for (var row = 0; row < height; row++) {
-      out.setRange(row * width, (row + 1) * width, y.bytes, row * y.bytesPerRow);
-    }
-    final halfW = width ~/ 2;
-    final halfH = height ~/ 2;
-    final uPix = u.bytesPerPixel ?? 1;
-    final vPix = v.bytesPerPixel ?? 1;
-    var o = ySize;
-    for (var row = 0; row < halfH; row++) {
-      final uRow = row * u.bytesPerRow;
-      final vRow = row * v.bytesPerRow;
-      for (var col = 0; col < halfW; col++) {
-        out[o++] = v.bytes[vRow + col * vPix];
-        out[o++] = u.bytes[uRow + col * uPix];
-      }
-    }
+    _unpackPlane(image.planes[0], width, height, out, 0, 1);
+    // NV21 interleaves V and U: V at even offsets, U at odd.
+    _unpackPlane(image.planes[2], width, height, out, ySize, 2);
+    _unpackPlane(image.planes[1], width, height, out, ySize + 1, 2);
     return out;
+  }
+
+  static void _unpackPlane(
+    Plane plane,
+    int width,
+    int height,
+    Uint8List out,
+    int offset,
+    int pixelStride,
+  ) {
+    final bytes = plane.bytes;
+    final rowStride = plane.bytesPerRow;
+    if (rowStride <= 0 || bytes.isEmpty) return;
+    final numRow = (bytes.length + rowStride - 1) ~/ rowStride;
+    if (numRow == 0) return;
+    final scaleFactor = height ~/ numRow;
+    if (scaleFactor == 0) return;
+    final numCol = width ~/ scaleFactor;
+    final sampleStride = plane.bytesPerPixel ?? 1;
+    var outputPos = offset;
+    var rowStart = 0;
+    for (var row = 0; row < numRow; row++) {
+      var inputPos = rowStart;
+      for (var col = 0; col < numCol; col++) {
+        if (inputPos < bytes.length && outputPos < out.length) {
+          out[outputPos] = bytes[inputPos];
+        }
+        outputPos += pixelStride;
+        inputPos += sampleStride;
+      }
+      rowStart += rowStride;
+    }
   }
 
   @override
