@@ -3,7 +3,12 @@
 /// scanning ([MlKitFrameDecoder]); tests inject a fake.
 library;
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'dart:ui' as ui;
+
 import 'package:flutter/services.dart';
 
 import 'package:camera/camera.dart';
@@ -66,23 +71,27 @@ class MlKitFrameDecoder implements FrameDecoder {
     Object? lastError;
     for (final attempt in attempts) {
       try {
-        final input = InputImage.fromBytes(
-          bytes: attempt.bytes,
-          metadata: InputImageMetadata(
-            size: size,
-            rotation: rotation,
-            format: attempt.format,
-            bytesPerRow: image.width,
-          ),
+        final barcodes = await _processBytes(
+          attempt.bytes,
+          attempt.format,
+          size,
+          rotation,
+          image.width,
         );
-        final barcodes = await _scanner.processImage(input);
-        return [
-          for (final barcode in barcodes)
-            if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
-        ];
+        return barcodes;
       } on PlatformException catch (e) {
         lastError = e;
       }
+    }
+    // The byte-array converter is broken on some devices (flutter-ml #628:
+    // even byte-perfect NV21 NPEs). The most reliable ML Kit input is a
+    // decoded file, so encode the frame to a PNG and fall back to
+    // InputImage.fromFilePath — slower, but it works everywhere.
+    try {
+      final fileInput = await _filePathInput(image, size, rotation);
+      return await _processInput(fileInput);
+    } on PlatformException catch (e) {
+      lastError = e;
     }
     // All layouts failed — surface the frame layout so a failing device
     // pinpoints the path and dimensions.
@@ -97,6 +106,109 @@ class MlKitFrameDecoder implements FrameDecoder {
       message: '${lastError is PlatformException ? lastError.message : lastError} '
           'frame=$layout',
     );
+  }
+
+  Future<List<DecodeResult>> _processBytes(
+    Uint8List bytes,
+    InputImageFormat format,
+    Size size,
+    InputImageRotation rotation,
+    int bytesPerRow,
+  ) async {
+    final input = InputImage.fromBytes(
+      bytes: bytes,
+      metadata: InputImageMetadata(
+        size: size,
+        rotation: rotation,
+        format: format,
+        bytesPerRow: bytesPerRow,
+      ),
+    );
+    return _processInput(input);
+  }
+
+  Future<List<DecodeResult>> _processInput(InputImage input) async {
+    final barcodes = await _scanner.processImage(input);
+    return [
+      for (final barcode in barcodes)
+        if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
+    ];
+  }
+
+  /// Encodes the frame to a PNG file and builds the ML Kit input from it.
+  Future<InputImage> _filePathInput(
+    CameraImage image,
+    Size size,
+    InputImageRotation rotation,
+  ) async {
+    final rgba = _nv21ToRgba(image);
+    final imageObj = await _decodeRgba(rgba, image.width, image.height);
+    final png = await imageObj.toByteData(format: ui.ImageByteFormat.png);
+    imageObj.dispose();
+    final file = File(
+      '${Directory.systemTemp.path}/qr_frame_${DateTime.now().microsecondsSinceEpoch}.png',
+    );
+    await file.writeAsBytes(png!.buffer.asUint8List(), flush: true);
+    return InputImage.fromFilePath(file.path);
+  }
+
+  static Future<ui.Image> _decodeRgba(Uint8List rgba, int width, int height) {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      rgba,
+      width,
+      height,
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
+    return completer.future;
+  }
+
+  /// Converts the single-plane NV21 (or 3-plane YUV) frame to RGBA.
+  static Uint8List _nv21ToRgba(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final out = Uint8List(width * height * 4);
+    if (image.planes.length == 1) {
+      final nv21 = image.planes[0].bytes;
+      final ySize = width * height;
+      for (var p = 0; p < ySize; p++) {
+        final y = nv21[p];
+        final chroma = ySize + (p ~/ width ~/ 2) * width + (p % width ~/ 2) * 2;
+        final v = nv21[chroma];
+        final u = nv21[chroma + 1];
+        _writeRgb(out, p, y, u, v);
+      }
+    } else {
+      // 3-plane YUV: use the plugin-style stride handling.
+      final y = image.planes[0];
+      final u = image.planes[1];
+      final v = image.planes[2];
+      for (var row = 0; row < height; row++) {
+        for (var col = 0; col < width; col++) {
+          final yy = y.bytes[row * y.bytesPerRow + col];
+          final uu = u.bytes[row ~/ 2 * u.bytesPerRow + col ~/ 2];
+          final vv = v.bytes[row ~/ 2 * v.bytesPerRow + col ~/ 2];
+          _writeRgb(out, row * width + col, yy, uu, vv);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// BT.601 full-range YUV -> RGB, packed as RGBA (alpha 255).
+  static void _writeRgb(Uint8List out, int p, int y, int u, int v) {
+    final c = y - 16;
+    final d = u - 128;
+    final e = v - 128;
+    final r = (298 * c + 409 * e + 128) >> 8;
+    final g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+    final b = (298 * c + 516 * d + 128) >> 8;
+    final o = p * 4;
+    out[o] = r < 0 ? 0 : (r > 255 ? 255 : r);
+    out[o + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+    out[o + 2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+    out[o + 3] = 0xFF;
   }
 
   /// Splits a single-plane NV21 buffer into tightly-packed planar I420
