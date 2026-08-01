@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
-  GRID_MAX_FPS,
-  GRID_MIN_CANVAS_PX,
   MIN_FPS,
-  V40_MAX_FPS,
   adaptFps,
-  chooseProfile,
   computeFrameDelayMs,
+  computeLayoutGeometry,
+  estimateEtaSeconds,
+  estimateThroughput,
   nextEsiRoundRobin,
   renderBudgetOk,
+  resolvePacing,
+  suggestLayout,
 } from '../../src/sender/pacing'
 import { computePxPerModule, recommendDistance } from '../../src/sender/controls'
 
@@ -20,30 +21,187 @@ describe('computeFrameDelayMs', () => {
   })
 })
 
-describe('chooseProfile', () => {
-  it('selects the 2x2 grid on canvases at least GRID_MIN_CANVAS_PX', () => {
-    const choice = chooseProfile(24, GRID_MIN_CANVAS_PX)
-
-    expect(choice.profile).toBe('grid')
-    expect(choice.tilesPerFrame).toBe(4)
-    expect(choice.maxFramesPerSecond).toBe(GRID_MAX_FPS)
+describe('suggestLayout', () => {
+  it('maps portrait canvases to column3', () => {
+    expect(suggestLayout(900, 2400)).toBe('column3')
   })
 
-  it('selects the single-V40 profile on smaller canvases', () => {
-    const choice = chooseProfile(12, 800)
-
-    expect(choice.profile).toBe('v40')
-    expect(choice.tilesPerFrame).toBe(1)
-    expect(choice.maxFramesPerSecond).toBe(V40_MAX_FPS)
+  it('maps landscape canvases to row3', () => {
+    expect(suggestLayout(2400, 900)).toBe('row3')
   })
 
-  it('caps the frame rate at the profile maximum when the target is higher', () => {
-    expect(chooseProfile(60, GRID_MIN_CANVAS_PX).maxFramesPerSecond).toBe(GRID_MAX_FPS)
-    expect(chooseProfile(60, 800).maxFramesPerSecond).toBe(V40_MAX_FPS)
+  it('picks grid9 only on square-ish canvases with both sides >= GRID9_MIN_CANVAS_PX', () => {
+    expect(suggestLayout(2000, 2000)).toBe('grid9')
+    expect(suggestLayout(1600, 1600)).toBe('grid4') // < 1800
+  })
+
+  it('picks grid4 on square-ish canvases >= GRID4_MIN_CANVAS_PX', () => {
+    expect(suggestLayout(1600, 1600)).toBe('grid4')
+    expect(suggestLayout(800, 1000)).toBe('grid4') // exact 0.8 aspect -> size branch
+  })
+
+  it('falls back to single below GRID4_MIN_CANVAS_PX', () => {
+    expect(suggestLayout(600, 600)).toBe('single')
+    expect(suggestLayout(500, 400)).toBe('single') // exact 1.25 aspect -> size branch
+  })
+
+  it('honors the 0.8 / 1.25 aspect boundaries exactly', () => {
+    expect(suggestLayout(790, 1000)).toBe('column3') // 0.79 < 0.8
+    expect(suggestLayout(800, 1000)).toBe('grid4') // 0.8 exact -> size branch
+    expect(suggestLayout(1250, 1000)).toBe('grid4') // 1.25 exact -> size branch
+    expect(suggestLayout(1260, 1000)).toBe('row3') // 1.26 > 1.25
+  })
+})
+
+describe('resolvePacing', () => {
+  it('applies the 24fps display-refresh ceiling to a 30fps layout cap', () => {
+    const pacing = resolvePacing(
+      { bytesPerTile: '1k', layout: 'grid4', targetFps: 15, highRefresh: false },
+      1600,
+      1600,
+    )
+
+    expect(pacing.tilesPerFrame).toBe(4)
+    expect(pacing.fpsCeiling).toBe(24) // layoutCap 30, refreshCap 24
+    expect(pacing.effectiveFps).toBe(15)
+    expect(pacing.suggestedLayout).toBe('grid4')
+  })
+
+  it('clamps a high target to the fpsCeiling', () => {
+    expect(
+      resolvePacing(
+        { bytesPerTile: '1k', layout: 'grid4', targetFps: 30, highRefresh: false },
+        1600,
+        1600,
+      ).effectiveFps,
+    ).toBe(24)
+  })
+
+  it('raises the ceiling to 30 on high-refresh displays', () => {
+    expect(
+      resolvePacing(
+        { bytesPerTile: '1k', layout: 'grid4', targetFps: 30, highRefresh: true },
+        1600,
+        1600,
+      ).effectiveFps,
+    ).toBe(30)
+  })
+
+  it('caps grid9 at its own 24fps layout limit even on high-refresh displays', () => {
+    expect(
+      resolvePacing(
+        { bytesPerTile: '1k', layout: 'grid9', targetFps: 30, highRefresh: true },
+        1600,
+        1600,
+      ).fpsCeiling,
+    ).toBe(24)
   })
 
   it('never exceeds the requested target fps', () => {
-    expect(chooseProfile(10, GRID_MIN_CANVAS_PX).maxFramesPerSecond).toBe(10)
+    expect(
+      resolvePacing(
+        { bytesPerTile: '1k', layout: 'single', targetFps: 12, highRefresh: false },
+        600,
+        600,
+      ).effectiveFps,
+    ).toBe(12)
+  })
+})
+
+describe('computeLayoutGeometry', () => {
+  it('splits a grid4 canvas into 2x2 cells with an integer ppm', () => {
+    const g = computeLayoutGeometry(1600, 1600, 'grid4', 27)
+
+    expect(g.cellW).toBe(800)
+    expect(g.cellH).toBe(800)
+    expect(g.ppm).toBe(6) // integerScalePx(27*4+17+8=133, 800)
+  })
+
+  it('splits a portrait column3 canvas into 1x3 cells', () => {
+    const g = computeLayoutGeometry(900, 2400, 'column3', 27)
+
+    expect(g.cellW).toBe(900)
+    expect(g.cellH).toBe(800)
+    expect(g.ppm).toBe(6) // min cell side 800
+  })
+
+  it('splits a landscape row3 canvas into 3x1 cells', () => {
+    const g = computeLayoutGeometry(2400, 900, 'row3', 27)
+
+    expect(g.cellW).toBe(800)
+    expect(g.cellH).toBe(900)
+    expect(g.ppm).toBe(6) // min cell side 800
+  })
+
+  it('uses the larger V40 module count for the ppm', () => {
+    const g = computeLayoutGeometry(600, 600, 'single', 40)
+
+    expect(g.cellW).toBe(600)
+    expect(g.cellH).toBe(600)
+    expect(g.ppm).toBe(3) // integerScalePx(40*4+17+8=185, 600)
+  })
+
+  it('honors a custom quiet zone', () => {
+    expect(computeLayoutGeometry(1600, 1600, 'grid4', 27, 0).ppm).toBe(6) // integerScalePx(125, 800)
+  })
+})
+
+describe('estimateThroughput', () => {
+  it('default 1k grid4 at 15fps: 15 x (4 - 1/32) x 1024 B/s', () => {
+    expect(
+      estimateThroughput({
+        bytesPerTile: '1k',
+        layout: 'grid4',
+        targetFps: 15,
+        highRefresh: false,
+      }),
+    ).toBe(60960)
+  })
+
+  it('2k grid4 at 24fps: 24 x (4 - 1/32) x 2048 B/s', () => {
+    expect(
+      estimateThroughput({
+        bytesPerTile: '2k',
+        layout: 'grid4',
+        targetFps: 24,
+        highRefresh: false,
+      }),
+    ).toBe(195072)
+  })
+
+  it('2.5k row3 at 30fps on high refresh: 30 x (3 - 1/32) x 2560 B/s', () => {
+    expect(
+      estimateThroughput({
+        bytesPerTile: '2.5k',
+        layout: 'row3',
+        targetFps: 30,
+        highRefresh: true,
+      }),
+    ).toBe(228000)
+  })
+
+  it('single layout carries one data tile per tick minus the metadata slot', () => {
+    expect(
+      estimateThroughput({
+        bytesPerTile: '2.5k',
+        layout: 'single',
+        targetFps: 30,
+        highRefresh: true,
+      }),
+    ).toBe(
+      74400, // 30 x (1 - 1/32) x 2560
+    )
+  })
+})
+
+describe('estimateEtaSeconds', () => {
+  it('reports ~17.2s for a 1 MiB file at the default 60,960 B/s', () => {
+    expect(
+      estimateEtaSeconds(
+        { bytesPerTile: '1k', layout: 'grid4', targetFps: 15, highRefresh: false },
+        1048576,
+      ),
+    ).toBeCloseTo(17.2, 1)
   })
 })
 

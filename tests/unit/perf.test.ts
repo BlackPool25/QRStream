@@ -17,13 +17,11 @@ import { encodeQrBytes, type QrMatrix } from '../../src/qr/encode'
 import { MIN_QUIET_ZONE, renderGrid, renderSingle } from '../../src/qr/render'
 import {
   DEFAULT_OVERHEAD_FACTOR,
-  GRID_MAX_FPS,
   MIN_FPS,
-  V40_MAX_FPS,
   adaptFps,
-  chooseProfile,
   computeFrameDelayMs,
   renderBudgetOk,
+  resolvePacing,
 } from '../../src/sender/pacing'
 
 // ── Fixtures / helpers ────────────────────────────────────────────────────────
@@ -154,18 +152,18 @@ function log(msg: string): void {
 // ── Budgets ───────────────────────────────────────────────────────────────────
 
 describe('perf: sender encode budget (work * 1.5 <= frame delay)', () => {
-  it('grid profile: V27-L 1024B encode fits the 42ms frame delay', () => {
+  it('grid4 layout: V27-L 1024B encode fits the 42ms frame delay', () => {
     const t = timeAvg(() => encodeQrBytes(PAYLOAD_1024, { version: 27 }), 50)
-    const frameDelayMs = computeFrameDelayMs(GRID_MAX_FPS)
+    const frameDelayMs = computeFrameDelayMs(24) // grid4 ceiling
     log(
       `encode V27-L 1024B avg=${t.avgMs.toFixed(3)}ms max=${t.maxMs.toFixed(3)}ms | frame ~${(t.avgMs * 4).toFixed(2)}ms vs ${frameDelayMs}ms`,
     )
     expect(t.avgMs * DEFAULT_OVERHEAD_FACTOR).toBeLessThanOrEqual(frameDelayMs)
   })
 
-  it('v40 profile: V40-L 2048B encode fits the 83ms frame delay', () => {
+  it('single layout: V40-L 2048B encode fits the 33ms frame delay', () => {
     const t = timeAvg(() => encodeQrBytes(PAYLOAD_2048, { version: 40 }), 50)
-    const frameDelayMs = computeFrameDelayMs(V40_MAX_FPS)
+    const frameDelayMs = computeFrameDelayMs(30) // single layout ceiling
     log(
       `encode V40-L 2048B avg=${t.avgMs.toFixed(3)}ms max=${t.maxMs.toFixed(3)}ms vs delay ${frameDelayMs}ms`,
     )
@@ -261,10 +259,29 @@ describe('perf: adaptive pacing boundaries', () => {
     expect(renderBudgetOk(30, frameDelayMs)).toBe(false)
   })
 
-  it('selects the grid profile at 1600px and the single-V40 profile below it', () => {
-    expect(chooseProfile(24, 1600).profile).toBe('grid')
-    expect(chooseProfile(12, 800).profile).toBe('v40')
-    expect(chooseProfile(60, 1600).maxFramesPerSecond).toBe(GRID_MAX_FPS)
-    expect(chooseProfile(60, 800).maxFramesPerSecond).toBe(V40_MAX_FPS)
+  it('resolves the fps ceilings the broadcast loops against', () => {
+    const grid4 = resolvePacing(
+      { bytesPerTile: '1k', layout: 'grid4', targetFps: 24, highRefresh: false },
+      1600,
+      1600,
+    )
+    const grid9 = resolvePacing(
+      { bytesPerTile: '1k', layout: 'grid9', targetFps: 24, highRefresh: true },
+      1600,
+      1600,
+    )
+    const single = resolvePacing(
+      { bytesPerTile: '1k', layout: 'single', targetFps: 30, highRefresh: true },
+      600,
+      600,
+    )
+    log(
+      `ceilings: grid4=${grid4.fpsCeiling} (24fps -> ${computeFrameDelayMs(grid4.fpsCeiling)}ms), ` +
+        `grid9=${grid9.fpsCeiling} (${computeFrameDelayMs(grid9.fpsCeiling)}ms), ` +
+        `single=${single.fpsCeiling} (${computeFrameDelayMs(single.fpsCeiling)}ms)`,
+    )
+    expect(grid4.fpsCeiling).toBe(24)
+    expect(grid9.fpsCeiling).toBe(24)
+    expect(single.fpsCeiling).toBe(30)
   })
 })

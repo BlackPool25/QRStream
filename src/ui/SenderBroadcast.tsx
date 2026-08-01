@@ -113,7 +113,7 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
               <span className="chip chip-muted">{formatBytes(prepared.info.totalSize)}</span>
               {/* TEMP: inline label until transferLabel(settings) lands (T10) */}
               <span className="chip chip-accent">
-                {s.profile === 'grid' ? 'GRID 2×2' : 'SINGLE V40'}
+                {s.layout === 'grid4' ? 'GRID 2×2' : 'SINGLE V40'}
               </span>
               <span className="chip chip-muted">k {s.k}</span>
               <span className="chip chip-muted">{s.fps.toFixed(1)} fps</span>

@@ -7,13 +7,37 @@
  */
 
 import { repairFrames, type PreparedTransfer } from './pipeline'
+import {
+  BYTES_PER_TILE,
+  LAYOUTS,
+  METADATA_REBROADCAST_EVERY,
+  type LayoutId,
+  type TransferSettings,
+} from '../protocol/constants'
+import { MIN_QUIET_ZONE, integerScalePx } from '../qr/render'
 
-/** Square canvas side (px) at which the 2×2 grid profile beats the single V40 tile. */
-export const GRID_MIN_CANVAS_PX = 1600
+/**
+ * Fps ceiling per layout: the 3×3 grid is render-heavy (9 tiles/frame) so it
+ * caps at 24; the others may run up to 30 when the device and display allow.
+ */
+export const LAYOUT_MAX_FPS: Readonly<Record<LayoutId, number>> = {
+  single: 30,
+  column3: 30,
+  row3: 30,
+  grid4: 30,
+  grid9: 24,
+}
+
+/** Min square-canvas side (px) at which the 2×2 grid is worthwhile. */
+export const GRID4_MIN_CANVAS_PX = 800
+
+/** Min square-canvas side (px) at which the 3×3 grid is worthwhile. */
+export const GRID9_MIN_CANVAS_PX = 1800
 
 /**
  * Fps ceiling for the grid profile (4×V27 tiles): at 60Hz capture this keeps
  * every QR visible across ≥2 camera frames while staying under capture fps.
+ * Legacy — the display loop still reads it until T6 migrates to resolvePacing.
  */
 export const GRID_MAX_FPS = 24
 
@@ -39,7 +63,7 @@ export interface SenderStats {
   readonly fps: number
   readonly droppedTicks: number
   readonly avgTickMs: number
-  readonly profile: 'grid' | 'v40'
+  readonly layout: LayoutId
   readonly k: number
 }
 
@@ -56,31 +80,83 @@ export function computeFrameDelayMs(targetFps: number): number {
   return Math.round(1000 / targetFps)
 }
 
-export interface ProfileChoice {
-  readonly profile: 'grid' | 'v40'
-  readonly tilesPerFrame: number
-  /** Broadcast fps ceiling = min(requested target, the profile's own cap). */
-  readonly maxFramesPerSecond: number
+/**
+ * Layout best suited to the canvas aspect ratio and size: extreme portrait →
+ * column3, extreme landscape → row3, square-ish canvases by how many
+ * near-square tiles they can hold (grid9 needs both sides >= GRID9_MIN_CANVAS_PX,
+ * grid4 >= GRID4_MIN_CANVAS_PX), otherwise a single tile.
+ */
+export function suggestLayout(canvasWidth: number, canvasHeight: number): LayoutId {
+  const aspect = canvasWidth / canvasHeight
+  if (aspect < 0.8) {
+    return 'column3'
+  }
+  if (aspect > 1.25) {
+    return 'row3'
+  }
+  const minSide = Math.min(canvasWidth, canvasHeight)
+  if (minSide >= GRID9_MIN_CANVAS_PX) {
+    return 'grid9'
+  }
+  if (minSide >= GRID4_MIN_CANVAS_PX) {
+    return 'grid4'
+  }
+  return 'single'
+}
+
+/** Effective fps ceiling for a transfer: layout cap AND display-refresh cap. */
+function effectiveFpsFor(settings: TransferSettings): number {
+  const fpsCeiling = Math.min(LAYOUT_MAX_FPS[settings.layout], settings.highRefresh ? 30 : 24)
+  return Math.min(settings.targetFps, fpsCeiling)
+}
+
+/** Pacing decision for one transfer on one canvas: tiles, fps caps, suggested layout. */
+export function resolvePacing(
+  settings: TransferSettings,
+  canvasWidth: number,
+  canvasHeight: number,
+): { tilesPerFrame: number; fpsCeiling: number; effectiveFps: number; suggestedLayout: LayoutId } {
+  const layout = LAYOUTS[settings.layout]
+  const fpsCeiling = Math.min(LAYOUT_MAX_FPS[settings.layout], settings.highRefresh ? 30 : 24)
+  return {
+    tilesPerFrame: layout.cols * layout.rows,
+    fpsCeiling,
+    effectiveFps: Math.min(settings.targetFps, fpsCeiling),
+    suggestedLayout: suggestLayout(canvasWidth, canvasHeight),
+  }
+}
+
+/** Per-cell pixel geometry for a layout on a canvas, with an integer ppm. */
+export function computeLayoutGeometry(
+  canvasWidth: number,
+  canvasHeight: number,
+  layout: LayoutId,
+  version: number,
+  quietZone: number = MIN_QUIET_ZONE,
+): { cellW: number; cellH: number; ppm: number } {
+  const { cols, rows } = LAYOUTS[layout]
+  const cellW = Math.floor(canvasWidth / cols)
+  const cellH = Math.floor(canvasHeight / rows)
+  const ppm = integerScalePx(version * 4 + 17 + 2 * quietZone, Math.min(cellW, cellH))
+  return { cellW, cellH, ppm }
 }
 
 /**
- * Picks the display profile from the square canvas side available for QRs:
- * the 2×2 grid needs ~1600px (4×V27 tiles at integer 6px/module land in two
- * 800px quadrants); smaller canvases fall back to one V40 tile.
+ * Expected broadcast rate in bytes/second: effective fps × data tiles per
+ * tick × symbol size. One of every 32 ticks is the metadata re-broadcast, so
+ * data tiles per tick = tilesPerFrame − 1/32; repair overhead (~1.0×) is a
+ * transfer-level cost and is not subtracted here.
  */
-export function chooseProfile(targetFps: number, canvasSize: number): ProfileChoice {
-  if (canvasSize >= GRID_MIN_CANVAS_PX) {
-    return {
-      profile: 'grid',
-      tilesPerFrame: 4,
-      maxFramesPerSecond: Math.min(targetFps, GRID_MAX_FPS),
-    }
-  }
-  return {
-    profile: 'v40',
-    tilesPerFrame: 1,
-    maxFramesPerSecond: Math.min(targetFps, V40_MAX_FPS),
-  }
+export function estimateThroughput(settings: TransferSettings): number {
+  const layout = LAYOUTS[settings.layout]
+  const tilesPerFrame = layout.cols * layout.rows
+  const symbolSize = BYTES_PER_TILE[settings.bytesPerTile].symbolSize
+  return effectiveFpsFor(settings) * (tilesPerFrame - 1 / METADATA_REBROADCAST_EVERY) * symbolSize
+}
+
+/** Expected wall time to broadcast `compressedSize` bytes at the estimated rate. */
+export function estimateEtaSeconds(settings: TransferSettings, compressedSize: number): number {
+  return compressedSize / estimateThroughput(settings)
 }
 
 /**

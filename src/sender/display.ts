@@ -249,7 +249,7 @@ export class SenderDisplay {
         this.renderedTicks > 0
           ? Math.round(((now - this.startTime) / this.renderedTicks) * 10) / 10
           : 0,
-      profile: this.profile,
+      layout: this.profile === 'grid' ? 'grid4' : 'single',
       k: this.pool.k,
     })
     this.lastStatsTime = now
