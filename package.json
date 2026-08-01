@@ -10,6 +10,8 @@
     "test:watch": "vitest",
     "tsc": "tsc --noEmit",
     "vitest": "vitest",
+    "soak": "vitest run tests/soak",
+    "soak:full": "SOAK_FULL=1 vitest run tests/soak",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
