@@ -60,7 +60,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1500125396;
+  int get rustContentHash => -1593672741;
 
   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
     stem: 'qr_transfer_rust',
@@ -71,7 +71,31 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  int crateApiSpikeSum({required int a, required int b});
+  Uint8List? crateApiRaptorqDecoderDecode({required RaptorqDecoder that, required List<int> packet});
+
+  RaptorqDecoder crateApiRaptorqDecoderNew({required BigInt totalLength, required int mtu});
+
+  List<Uint8List> crateApiRaptorqEncoderEncodeRepairPackets({required RaptorqEncoder that, required BigInt count});
+
+  List<Uint8List> crateApiRaptorqEncoderEncodeSourcePackets({required RaptorqEncoder that});
+
+  BigInt crateApiRaptorqEncoderSourceSymbolCount({required RaptorqEncoder that});
+
+  BigInt crateApiRaptorqEncoderSymbolSize({required RaptorqEncoder that});
+
+  RaptorqEncoder crateApiRaptorqEncoderWithDefaults({required List<int> data, required int mtu});
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqDecoder;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_RaptorqDecoder;
+
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_RaptorqDecoderPtr;
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqEncoder;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_RaptorqEncoder;
+
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_RaptorqEncoderPtr;
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -83,27 +107,280 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  int crateApiSpikeSum({required int a, required int b}) {
+  Uint8List? crateApiRaptorqDecoderDecode({required RaptorqDecoder that, required List<int> packet}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_i_32(a, serializer);
-          sse_encode_i_32(b, serializer);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+            that,
+            serializer,
+          );
+          sse_encode_list_prim_u_8_loose(packet, serializer);
           return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
         },
-        codec: SseCodec(decodeSuccessData: sse_decode_i_32, decodeErrorData: null),
-        constMeta: kCrateApiSpikeSumConstMeta,
-        argValues: [a, b],
+        codec: SseCodec(decodeSuccessData: sse_decode_opt_list_prim_u_8_strict, decodeErrorData: null),
+        constMeta: kCrateApiRaptorqDecoderDecodeConstMeta,
+        argValues: [that, packet],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSpikeSumConstMeta => const TaskConstMeta(debugName: "spike_sum", argNames: ["a", "b"]);
+  TaskConstMeta get kCrateApiRaptorqDecoderDecodeConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqDecoder_decode", argNames: ["that", "packet"]);
+
+  @override
+  RaptorqDecoder crateApiRaptorqDecoderNew({required BigInt totalLength, required int mtu}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(totalLength, serializer);
+          sse_encode_u_16(mtu, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRaptorqDecoderNewConstMeta,
+        argValues: [totalLength, mtu],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqDecoderNewConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqDecoder_new", argNames: ["totalLength", "mtu"]);
+
+  @override
+  List<Uint8List> crateApiRaptorqEncoderEncodeRepairPackets({required RaptorqEncoder that, required BigInt count}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+            that,
+            serializer,
+          );
+          sse_encode_usize(count, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_list_list_prim_u_8_strict, decodeErrorData: null),
+        constMeta: kCrateApiRaptorqEncoderEncodeRepairPacketsConstMeta,
+        argValues: [that, count],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqEncoderEncodeRepairPacketsConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqEncoder_encode_repair_packets", argNames: ["that", "count"]);
+
+  @override
+  List<Uint8List> crateApiRaptorqEncoderEncodeSourcePackets({required RaptorqEncoder that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_list_list_prim_u_8_strict, decodeErrorData: null),
+        constMeta: kCrateApiRaptorqEncoderEncodeSourcePacketsConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqEncoderEncodeSourcePacketsConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqEncoder_encode_source_packets", argNames: ["that"]);
+
+  @override
+  BigInt crateApiRaptorqEncoderSourceSymbolCount({required RaptorqEncoder that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_usize, decodeErrorData: null),
+        constMeta: kCrateApiRaptorqEncoderSourceSymbolCountConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqEncoderSourceSymbolCountConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqEncoder_source_symbol_count", argNames: ["that"]);
+
+  @override
+  BigInt crateApiRaptorqEncoderSymbolSize({required RaptorqEncoder that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_usize, decodeErrorData: null),
+        constMeta: kCrateApiRaptorqEncoderSymbolSizeConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqEncoderSymbolSizeConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqEncoder_symbol_size", argNames: ["that"]);
+
+  @override
+  RaptorqEncoder crateApiRaptorqEncoderWithDefaults({required List<int> data, required int mtu}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          sse_encode_u_16(mtu, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRaptorqEncoderWithDefaultsConstMeta,
+        argValues: [data, mtu],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRaptorqEncoderWithDefaultsConstMeta =>
+      const TaskConstMeta(debugName: "RaptorqEncoder_with_defaults", argNames: ["data", "mtu"]);
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqDecoder =>
+      wire.rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_RaptorqDecoder =>
+      wire.rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder;
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqEncoder =>
+      wire.rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_RaptorqEncoder =>
+      wire.rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder;
 
   @protected
-  int dco_decode_i_32(dynamic raw) {
+  RaptorqDecoder dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqDecoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqEncoder dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqDecoder dco_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqDecoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqEncoder dco_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqEncoder dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqDecoder dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqDecoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  RaptorqEncoder dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  String dco_decode_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as String;
+  }
+
+  @protected
+  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_list_prim_u_8_strict).toList();
+  }
+
+  @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
+  }
+
+  @protected
+  Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as Uint8List;
+  }
+
+  @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
+  }
+
+  @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
+  }
+
+  @protected
+  int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
   }
@@ -115,14 +392,144 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer) {
+  BigInt dco_decode_usize(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
+  }
+
+  @protected
+  RaptorqDecoder sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    SseDeserializer deserializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getInt32();
+    return RaptorqDecoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqEncoder sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqDecoder sse_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqDecoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqEncoder sse_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqEncoder sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqDecoder sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqDecoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  RaptorqEncoder sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return RaptorqEncoderImpl.frbInternalSseDecode(sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  String sse_decode_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_list_prim_u_8_strict(deserializer);
+    return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  List<Uint8List> sse_decode_list_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <Uint8List>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_list_prim_u_8_strict(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_u_8_strict(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
+  int sse_decode_u_8(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8();
   }
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getInt32();
   }
 
   @protected
@@ -132,9 +539,123 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_i_32(int self, SseSerializer serializer) {
+  void sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    RaptorqDecoder self,
+    SseSerializer serializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putInt32(self);
+    sse_encode_usize((self as RaptorqDecoderImpl).frbInternalSseEncode(move: true), serializer);
+  }
+
+  @protected
+  void sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    RaptorqEncoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqEncoderImpl).frbInternalSseEncode(move: true), serializer);
+  }
+
+  @protected
+  void sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    RaptorqDecoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqDecoderImpl).frbInternalSseEncode(move: false), serializer);
+  }
+
+  @protected
+  void sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    RaptorqEncoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqEncoderImpl).frbInternalSseEncode(move: false), serializer);
+  }
+
+  @protected
+  void sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    RaptorqEncoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqEncoderImpl).frbInternalSseEncode(move: false), serializer);
+  }
+
+  @protected
+  void sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder(
+    RaptorqDecoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqDecoderImpl).frbInternalSseEncode(move: null), serializer);
+  }
+
+  @protected
+  void sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqEncoder(
+    RaptorqEncoder self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize((self as RaptorqEncoderImpl).frbInternalSseEncode(move: null), serializer);
+  }
+
+  @protected
+  void sse_encode_String(String self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_list_list_prim_u_8_strict(List<Uint8List> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_list_prim_u_8_strict(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint8List(self is Uint8List ? self : Uint8List.fromList(self));
+  }
+
+  @protected
+  void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(Uint8List? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_u_8_strict(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_u_8(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self);
   }
 
   @protected
@@ -143,8 +664,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putInt32(self);
+  }
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
   }
+}
+
+@sealed
+class RaptorqDecoderImpl extends RustOpaque implements RaptorqDecoder {
+  // Not to be used by end users
+  RaptorqDecoderImpl.frbInternalDcoDecode(List<dynamic> wire) : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  RaptorqDecoderImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount: RustLib.instance.api.rust_arc_increment_strong_count_RaptorqDecoder,
+    rustArcDecrementStrongCount: RustLib.instance.api.rust_arc_decrement_strong_count_RaptorqDecoder,
+    rustArcDecrementStrongCountPtr: RustLib.instance.api.rust_arc_decrement_strong_count_RaptorqDecoderPtr,
+  );
+
+  /// Feeds one serialized encoding packet. Returns the full decoded file once
+  /// ≥ K distinct packets have arrived, `None` until then. After the file has
+  /// been returned once, every later call returns `None` (one-shot decoder).
+  Uint8List? decode({required List<int> packet}) =>
+      RustLib.instance.api.crateApiRaptorqDecoderDecode(that: this, packet: packet);
+}
+
+@sealed
+class RaptorqEncoderImpl extends RustOpaque implements RaptorqEncoder {
+  // Not to be used by end users
+  RaptorqEncoderImpl.frbInternalDcoDecode(List<dynamic> wire) : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  RaptorqEncoderImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount: RustLib.instance.api.rust_arc_increment_strong_count_RaptorqEncoder,
+    rustArcDecrementStrongCount: RustLib.instance.api.rust_arc_decrement_strong_count_RaptorqEncoder,
+    rustArcDecrementStrongCountPtr: RustLib.instance.api.rust_arc_decrement_strong_count_RaptorqEncoderPtr,
+  );
+
+  /// `count` repair packets (each `symbol_size` bytes, ESI ≥ K). `get_encoded_packets`
+  /// returns the K source packets first, so they are sliced off and only the
+  /// `count` repair packets are kept.
+  List<Uint8List> encodeRepairPackets({required BigInt count}) =>
+      RustLib.instance.api.crateApiRaptorqEncoderEncodeRepairPackets(that: this, count: count);
+
+  /// The K systematic source packets, each `symbol_size` bytes long, in ESI order.
+  List<Uint8List> encodeSourcePackets() => RustLib.instance.api.crateApiRaptorqEncoderEncodeSourcePackets(that: this);
+
+  /// K — the number of source symbols for this transfer (== ceil(len / (mtu-4))).
+  BigInt sourceSymbolCount() => RustLib.instance.api.crateApiRaptorqEncoderSourceSymbolCount(that: this);
+
+  /// Full serialized packet length, == mtu (PWA `metadata.symbolSize`).
+  BigInt symbolSize() => RustLib.instance.api.crateApiRaptorqEncoderSymbolSize(that: this);
 }

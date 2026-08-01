@@ -6,5 +6,38 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-/// Trivial spike function: proves the codegen -> standalone-Dart-analyze path.
-int spikeSum({required int a, required int b}) => RustLib.instance.api.crateApiSpikeSum(a: a, b: b);
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RaptorqDecoder>>
+abstract class RaptorqDecoder implements RustOpaqueInterface {
+  /// Feeds one serialized encoding packet. Returns the full decoded file once
+  /// ≥ K distinct packets have arrived, `None` until then. After the file has
+  /// been returned once, every later call returns `None` (one-shot decoder).
+  Uint8List? decode({required List<int> packet});
+
+  /// Builds a one-shot decoder for a transfer of `total_length` bytes with
+  /// the given MTU (must match the encoder's). MTU in [64, 65535];
+  /// a zero-length transfer is rejected.
+  factory RaptorqDecoder({required BigInt totalLength, required int mtu}) =>
+      RustLib.instance.api.crateApiRaptorqDecoderNew(totalLength: totalLength, mtu: mtu);
+}
+
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RaptorqEncoder>>
+abstract class RaptorqEncoder implements RustOpaqueInterface {
+  /// `count` repair packets (each `symbol_size` bytes, ESI ≥ K). `get_encoded_packets`
+  /// returns the K source packets first, so they are sliced off and only the
+  /// `count` repair packets are kept.
+  List<Uint8List> encodeRepairPackets({required BigInt count});
+
+  /// The K systematic source packets, each `symbol_size` bytes long, in ESI order.
+  List<Uint8List> encodeSourcePackets();
+
+  /// K — the number of source symbols for this transfer (== ceil(len / (mtu-4))).
+  BigInt sourceSymbolCount();
+
+  /// Full serialized packet length, == mtu (PWA `metadata.symbolSize`).
+  BigInt symbolSize();
+
+  /// Builds an encoder for `data` with the given MTU. The MTU must be in
+  /// [64, 65535]; empty input is rejected (K would be 0).
+  static RaptorqEncoder withDefaults({required List<int> data, required int mtu}) =>
+      RustLib.instance.api.crateApiRaptorqEncoderWithDefaults(data: data, mtu: mtu);
+}
