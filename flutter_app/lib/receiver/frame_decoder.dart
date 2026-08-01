@@ -43,23 +43,20 @@ class MlKitFrameDecoder implements FrameDecoder {
   }) async {
     final planes = image.planes;
     if (planes.isEmpty) return const [];
-    var total = 0;
-    for (final plane in planes) {
-      total += plane.bytes.length;
-    }
-    final bytes = Uint8List(total);
-    var offset = 0;
-    for (final plane in planes) {
-      bytes.setRange(offset, offset + plane.bytes.length, plane.bytes);
-      offset += plane.bytes.length;
-    }
+    // The camera plugin is configured for NV21, so it delivers ONE tight
+    // plane (Y + interleaved VU, no row padding) — the layout ML Kit's
+    // InputImage.fromBytes accepts. Other layouts are converted defensively.
+    final (Uint8List bytes, int bytesPerRow) =
+        planes.length == 1
+            ? (planes[0].bytes, image.width)
+            : (_toNv21(image), image.width);
     final input = InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: _rotationFor(rotationDegrees),
-        format: InputImageFormat.yuv_420_888,
-        bytesPerRow: planes[0].bytesPerRow,
+        format: InputImageFormat.nv21,
+        bytesPerRow: bytesPerRow,
       ),
     );
     final barcodes = await _scanner.processImage(input);
@@ -67,6 +64,35 @@ class MlKitFrameDecoder implements FrameDecoder {
       for (final barcode in barcodes)
         if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
     ];
+  }
+
+  /// Converts multi-plane YUV420 (with row/column strides) to a tight NV21
+  /// buffer — Y plane followed by interleaved VU, the Android standard.
+  static Uint8List _toNv21(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final y = image.planes[0];
+    final u = image.planes[1];
+    final v = image.planes[2];
+    final ySize = width * height;
+    final out = Uint8List(ySize + ySize ~/ 2);
+    for (var row = 0; row < height; row++) {
+      out.setRange(row * width, (row + 1) * width, y.bytes, row * y.bytesPerRow);
+    }
+    final halfW = width ~/ 2;
+    final halfH = height ~/ 2;
+    final uPix = u.bytesPerPixel ?? 1;
+    final vPix = v.bytesPerPixel ?? 1;
+    var o = ySize;
+    for (var row = 0; row < halfH; row++) {
+      final uRow = row * u.bytesPerRow;
+      final vRow = row * v.bytesPerRow;
+      for (var col = 0; col < halfW; col++) {
+        out[o++] = v.bytes[vRow + col * vPix];
+        out[o++] = u.bytes[uRow + col * uPix];
+      }
+    }
+    return out;
   }
 
   @override

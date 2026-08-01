@@ -105,6 +105,10 @@ class PluginCameraService implements CameraService {
         back,
         ResolutionPreset.high,
         enableAudio: false,
+        // The plugin converts the YUV frames to a single tightly-packed NV21
+        // plane (no row padding) — exactly the layout Android ML Kit's
+        // InputImage.fromBytes expects.
+        imageFormatGroup: ImageFormatGroup.nv21,
       );
       await controller.initialize();
       // Continuous autofocus — critical for sharp QR modules at close range.
