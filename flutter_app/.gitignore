@@ -22,3 +22,6 @@ linux/
 
 # Lockfile resolved separately for standalone core and app
 pubspec.lock
+
+# IDE / tooling metadata
+.idea/
