@@ -1,0 +1,20 @@
+{
+  "name": "random-1k",
+  "originalSize": 1024,
+  "compressedSize": 1024,
+  "compressed": false,
+  "k": 1,
+  "mtu": 1028,
+  "symbolSize": 1028,
+  "sessionId": "6565fb8669c9e145",
+  "fileSHA256": "eb792a0d07f5976fba17d5e2a12c3022269138f23edb39d538d65ee48a6db39e",
+  "payloadSHA256": "eb792a0d07f5976fba17d5e2a12c3022269138f23edb39d538d65ee48a6db39e",
+  "deflateSHA256": "eb792a0d07f5976fba17d5e2a12c3022269138f23edb39d538d65ee48a6db39e",
+  "profile": {
+    "bytesPerTile": "1k",
+    "layout": "grid4",
+    "targetFps": 15,
+    "highRefresh": false
+  },
+  "generatedBy": "pwa-interop-gen"
+}
