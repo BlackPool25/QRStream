@@ -2,10 +2,11 @@
 
 Offline-first PWA that moves files from one device's screen into another device's camera —
 a continuous stream of QR codes, no network, no pairing, no server. The sender broadcasts a
-file as a cycling 2×2 grid of QR codes (plus a single-large-QR profile); the receiver scans
-the screen with its camera, decodes the stream live, reassembles the file with a RaptorQ
-fountain codec, verifies its SHA-256 against the sender's metadata, and saves it. Everything
-happens on device: bytes never leave the room.
+file as a cycling grid of QR codes, from a single tile up to a 3×3 grid, with selectable
+tile size, layout and frame rate; the receiver scans the screen with its camera, decodes
+the stream live, reassembles the file with a RaptorQ fountain codec, verifies its SHA-256
+against the sender's metadata, and saves it. Everything happens on device: bytes never leave
+the room.
 
 - **Zero network** — the transfer path never touches a socket; both devices can be in airplane mode after first load.
 - **No pairing, no handshake** — the receiver just points its camera at the sender's screen and starts collecting. A receiver can join mid-broadcast.
@@ -25,12 +26,14 @@ virtual camera):
 | 256 KiB compressible | ~4.7 s          | ~56 KB/s       |
 | 64 KiB random        | ~3.3 s          | ~20 KB/s       |
 
-Rates are dominated by the broadcast cadence, not decode cost: the 2×2 grid runs at a
-measured **12 fps** (the 15 fps target quantizes to 12 on a 60 Hz display) × 4 tiles ≈
-48 symbols/s ≈ **~48 KB/s raw**, minus compression and repair overhead. The receiver's
-decode budget has ~27× headroom. Small files look slower because fixed startup dominates.
-The wire format caps a single transfer at **16 MiB** (`totalLen` is 24 bits); the soak
-matrix validates up to 10 MB with a loss model (overhead ratio 1.000).
+Rates are dominated by the broadcast cadence, not decode cost: with the default settings
+(2×2 grid, 1 KB tiles, 15 fps) the grid runs at a measured **12 fps** (the 15 fps target
+quantizes to 12 on a 60 Hz display) × 4 tiles ≈ 48 symbols/s ≈ **~48 KB/s raw**, minus
+compression and repair overhead. The receiver's decode budget has ~27× headroom. The
+settings panel's estimate is nominal (it assumes the target fps), so it runs ~25% high on a
+60 Hz display; use it as a ceiling. Small files look slower because fixed startup
+dominates. The wire format caps a single transfer at **16 MiB** (`totalLen` is 24 bits);
+the soak matrix validates up to 10 MB with a loss model (overhead ratio 1.000).
 
 For practical use: **files up to a few MB transfer in under a couple of minutes; anything
 larger is a test of patience.** A 10 MB file at ~46 KB/s is roughly 3.5 minutes of steady
@@ -55,9 +58,21 @@ fully offline after the first load).
 **Send** (one device, e.g. a phone):
 
 1. Open the app, tap **SEND**, pick or drag a file.
-2. Wait for preparation (compress + fountain-encode — a status card shows size, profile and symbol count).
-3. Tap **Begin broadcast**. Hold the device screen toward the other device's camera.
-4. Use **Fullscreen** (helps the camera) and **Boost** (wake lock keeps the screen on; raise brightness manually). The broadcast loops forever with no start/stop sequencing — the receiver can join at any point.
+2. Wait for preparation (compress + fountain-encode).
+3. Review the **settings** panel: display fps, bytes per tile, tile layout and high-refresh are pre-set for your device (orientation-based layout suggestion; high-refresh when a 90 Hz+ display is detected) and editable. It shows the expected speed (KB/s) and ETA.
+4. Tap **Begin broadcast**. Hold the device screen toward the other device's camera.
+5. Use **Fullscreen** (helps the camera) and **Boost** (wake lock keeps the screen on; raise brightness manually). The broadcast loops forever with no start/stop sequencing — the receiver can join at any point.
+
+### Choosing speed
+
+The settings panel trades rate against how much the camera has to resolve:
+
+- **Display fps** (12 / 15 / 24 / 30): the broadcast cadence. 30 needs the high-refresh toggle on, which is only available on a 90 Hz+ display; on a 60 Hz display even 15 renders at a measured ~12 fps.
+- **Bytes per tile** (1 / 2 / 2.5 KB): the QR symbol size. Bigger tiles carry more data per QR but need a sharper, steadier view; 2.5 KB is a V40 QR.
+- **Tile layout** (1×1 / 1×3 / 3×1 / 2×2 / 3×3): tiles per frame. More tiles mean more data per tick, each smaller on screen. The panel suggests a column (1×3) on a portrait phone, a row (3×1) or 2×2 on a landscape screen, and 3×3 only on a large canvas (≥ 1800 px).
+- **High refresh rate**: off on 60 Hz displays, auto-on at 90/120 Hz; this is the gate for 30 fps.
+
+The panel shows a live **expected speed** (`~KB/s · ~ETA`) for your selection. Treat it as a guide: the real rate depends on screen brightness, how close and steady the receiver is, and the px/module the camera actually sees. The measured numbers are in [docs/PERF.md](docs/PERF.md).
 
 **Receive** (another device, or the same phone's second camera view):
 
@@ -78,11 +93,14 @@ Both devices stay offline. No QR codes need to be read by humans; nothing is typ
 | Any modern browser                | Needs `getUserMedia` + WebAssembly (zxing + raptorq). No iOS 14-era quirks are accommodated; iOS **must** be ≥ 15.4 (or the era where `getUserMedia` + wasm are reliable on iPhone) |
 
 Camera requirements: a rear camera that can resolve the QR grid from a phone-to-phone
-distance. The sender renders the grid at ≥ 4–6 px/module on a large canvas (V27 grid,
-1600 px canvas ≈ 6 px/module); small-screen senders fall back to fewer px/module — see
-[DEVICE-MATRIX.md](docs/DEVICE-MATRIX.md) for the measured device matrix and
-[PERF.md §9](docs/PERF.md) for the known profile-selection limitation on small canvases.
-The receiver requests 720p/60 fps (ideal — it starts on any camera) and downscales captures to ≤ 2 MP (1280 px wide) before decoding.
+distance. The sender renders tiles at ≥ 4–6 px/module on a large canvas (a 2×2 V27 grid on
+a 1600 px canvas ≈ 6 px/module); the settings panel auto-suggests a layout for the canvas,
+so small screens drop to fewer, larger tiles instead of an undecodable grid (see
+[DEVICE-MATRIX.md](docs/DEVICE-MATRIX.md) for the measured device matrix). The sender
+detects its display refresh rate (60 / 90 / 120 Hz): the 30 fps setting is only available
+on a 90 Hz+ display (the high-refresh toggle), and on a 60 Hz display the effective rate is
+capped lower. The receiver requests 720p/60 fps (ideal — it starts on any camera) and
+downscales captures to ≤ 2 MP (1280 px wide) before decoding.
 
 ## Design decisions (short version)
 

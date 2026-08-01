@@ -30,6 +30,10 @@ a 42 ms frame delay — **10× headroom**. The V40 frame costs ~2.2 ms against
 83 ms — **37× headroom**. Encode is nowhere near the budget; the adaptive fps
 logic (`adaptFps`) is never exercised by encode cost.
 
+(The V40 2048 B line above measured the legacy single-V40 profile, removed in
+Wave 5 T12; the selectable 2.5 KB tile is also a V40 QR but carries a 2560 B
+symbol, so its encode cost is the upper end of this range.)
+
 ## 2. QR render cost (grid frame composition)
 
 ```
@@ -41,7 +45,9 @@ A 1600×1600 RGBA grid frame (10.2 MiB, `fill` + 4 tiles) composes in **8.8 ms
 avg** — under the 16 ms display-refresh budget with ~1.9× headroom, and under
 the grid frame-delay budget (42 ms) with ~4× headroom. Total per-frame work in
 the browser loop is ~13 ms (encode + render + putImageData), well inside the
-67 ms delay at the app's 15 fps target.
+67 ms delay at the app's 15 fps target. (`renderSingle` also measured the
+legacy single-V40 profile; the current 1×1 layout composes through the same
+`renderTiles` path, so the cost is comparable for a given QR version.)
 
 ## 3. Decode throughput (receiver)
 
@@ -96,10 +102,10 @@ callback's measured mean duration is **3.6 ms**.
 
 ```
 [perf-e2e] grid: samples=16 avgFps=12.0 minFps=12.0 avgTickMs=83.3
-[perf-e2e] grid: chips: perf-64k.bin | 64 KB | GRID 2×2 | k 64 | 12.0 fps | 0 dropped
+[perf-e2e] grid: chips: perf-64k.bin | 64 KB | V27 · 2×2 | k 64 | 12.0 fps | 0 dropped
 [perf-e2e] grid: canvas 1600x1600px -> ~6 px/module
 [perf-e2e] small: samples=12 avgFps=12.0 minFps=12.0 avgTickMs=83.3
-[perf-e2e] small: chips: ... | GRID 2×2 | k 64 | 12.0 fps | 0 dropped
+[perf-e2e] small: chips: ... | V27 · 2×2 | k 64 | 12.0 fps | 0 dropped
 [perf-e2e] small: canvas 800x800px -> ~3 px/module
 ```
 
@@ -147,13 +153,13 @@ changes were warranted — the design's margins are genuine, not accidental.
 
 ## 9. Findings worth acting on (not perf defects)
 
-1. **`chooseProfile` is not wired into the broadcast path.** `prepareTransfer`
-   defaults to `grid` and nothing in `src/ui/SenderBroadcast.tsx` consults the
-   canvas size, so the app always broadcasts the 2×2 grid. On a phone-size
-   canvas (e.g. 375 px) that renders **~1 px/module tiles — undecodable**. The
-   V40 profile is unreachable from the UI. Recommendation: pass the profile
-   from the view (`chooseProfile(targetFps, canvasSize)`) so small screens fall
-   back to a single V40 tile.
+1. **~~`chooseProfile` is not wired into the broadcast path.~~ RESOLVED (Wave 5
+   T12):** the sender now has a settings phase (display fps, bytes per tile,
+   tile layout and high-refresh) and auto-suggests a layout from the canvas
+   size and orientation (`suggestLayout`), so a small canvas drops to a single
+   (or 1×3 / 3×1) tile instead of an undecodable 2×2. The measured
+   grid4 / 1 KB / 15 fps baseline throughout this report is unchanged: the
+   default path is behavior-preserving (defaults equal the old `grid` profile).
 2. **15 fps target → 12 fps actual on 60 Hz displays** (rAF quantization, see
    §6). If exact rates matter, target 60 Hz-aligned values (12 / 20 / 30) or
    carry the rAF phase into `computeFrameDelayMs`.
@@ -162,6 +168,16 @@ changes were warranted — the design's margins are genuine, not accidental.
 4. **Keep capture at 720p** — the downsample already yields 1280×720 for 1080p
    and 4K captures, so a higher capture resolution adds camera cost with zero
    decode benefit.
+5. **The settings panel's nominal estimate is optimistic on 60 Hz displays.**
+   `estimateThroughput = effectiveFps × (tilesPerFrame − 1/32) × symbolSize`
+   uses the _target_ fps, but a 15 fps target measures ~12 fps (rAF
+   quantization, §6): the default estimate (~15 × (4 − 1/32) × 1024 ≈ 60 KB/s)
+   is therefore ~25% high (15/12) on the fps term alone, before compression,
+   repair and startup losses. The clean 1 MiB e2e run (§7) measured ~46 KB/s;
+   the 256 KiB compressible fixture reached ~56 KB/s. Metadata takes one slot
+   per 32 ticks (the − 1/32 term) and repair overhead (~1.0×) is deliberately
+   not subtracted. Treat "Expected speed" as a ceiling to plan around, not a
+   promise: distance, steadiness and px/module decide the real rate.
 
 ## How to reproduce
 
