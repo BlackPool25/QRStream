@@ -8,9 +8,11 @@
 /// never constructs a service.
 library;
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// One RGB camera frame: `width * height * 3` bytes, row-major.
 typedef FrameConsumer = void Function(Uint8List rgb, int width, int height);
@@ -29,6 +31,12 @@ abstract class CameraService {
 /// Real camera: wraps the `camera` plugin's [CameraController] and converts
 /// the YUV image stream to tight RGB before forwarding each frame. The
 /// controller is created on first [start] from the first available camera.
+///
+/// The CAMERA permission is requested EXPLICITLY before the plugin is touched:
+/// CameraX's `availableCameras()` can return empty / throw when the permission
+/// is not yet granted, and the plugin's own request (inside `initialize()`)
+/// races its permission callback. A pre-granted permission makes the plugin's
+/// internal request a no-op success.
 class PluginCameraService implements CameraService {
   /// [controller] may be supplied (tests / embedders); otherwise the service
   /// acquires the first available camera itself.
@@ -47,6 +55,15 @@ class PluginCameraService implements CameraService {
     _consumer = onFrame;
     if (_started) {
       return;
+    }
+    if (Platform.isAndroid) {
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        throw CameraException(
+          'CameraAccessDenied',
+          'Camera permission was denied — enable it in the app settings.',
+        );
+      }
     }
     var controller = _controller;
     if (controller == null) {
