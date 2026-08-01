@@ -12,6 +12,7 @@ import {
   stubSaveFilePicker,
   waitForSymbolsReceived,
   waitForVerifiedBadge,
+  type SenderSettingsOverride,
 } from './helpers/virtual-camera'
 
 /**
@@ -58,6 +59,24 @@ test.describe('end-to-end transfer over the virtual camera', () => {
     // Join 2.5s late — the META frame is re-broadcast every 32 ticks (~2s).
     await runTransfer(context, fixture, { receiverDelayMs: 2_500 })
   })
+
+  test('receives a non-default-settings broadcast (2.5 KB tiles, 3×1 row) byte-identical', async ({
+    context,
+  }) => {
+    test.setTimeout(120_000)
+    const fixture: TransferFixture = {
+      name: 'fixture-256k-custom.bin',
+      mime: RANDOM_MIME,
+      bytes: buildRandomBytes(256 * 1024, 6),
+    }
+    // Non-default settings must work end-to-end: the sender re-encodes for the
+    // 2.5 KB symbol and broadcasts a 3×1 row, and the receiver (profile-
+    // agnostic, it reassembles any symbolSize from metadata) still reassembles
+    // + SHA-256-verifies the exact same bytes. Same assertions as the defaults.
+    await runTransfer(context, fixture, {
+      settings: { bytesPerTile: '2.5k', layout: 'row3' },
+    })
+  })
 })
 
 function timeoutFor(name: string): number {
@@ -70,9 +89,16 @@ function timeoutFor(name: string): number {
 async function runTransfer(
   context: BrowserContext,
   fixture: TransferFixture,
-  opts: { readonly receiverDelayMs?: number },
+  opts: {
+    readonly receiverDelayMs?: number
+    readonly settings?: SenderSettingsOverride
+  },
 ): Promise<void> {
-  const sender = await startSenderBroadcast(context, fixture)
+  const sender = await startSenderBroadcast(
+    context,
+    fixture,
+    opts.settings === undefined ? {} : { settings: opts.settings },
+  )
   if (opts.receiverDelayMs !== undefined) {
     await sender.waitForTimeout(opts.receiverDelayMs)
   }

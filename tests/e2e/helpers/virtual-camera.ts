@@ -12,6 +12,13 @@
 
 import { expect, type BrowserContext, type Page } from '@playwright/test'
 import type { TransferFixture } from './fixtures'
+import {
+  applySenderSettings,
+  clickBeginBroadcast,
+  waitForSettingsPanel,
+  type SenderSettingsOverride,
+} from './sender-settings'
+export type { SenderSettingsOverride } from './sender-settings'
 
 /** Square sender viewport: a 1440px canvas renders 5px/module V27 tiles. */
 export const SENDER_VIEWPORT = { width: 1440, height: 1440 } as const
@@ -31,17 +38,32 @@ declare global {
   }
 }
 
+export interface StartSenderBroadcastOptions {
+  /** Settings to apply on the settings phase before beginning the broadcast. */
+  readonly settings?: SenderSettingsOverride
+}
+
 /**
- * Drives the real sender UI to broadcast `fixture`, waits for the QR canvas to
- * render, and exposes `window.__senderStream` = canvas.captureStream(30) on
- * the page. Returns the sender page (kept alive for the receiver's stream).
+ * Drives the real sender UI to broadcast `fixture`: pick → settings phase →
+ * broadcast. Applies any settings overrides, then exposes
+ * `window.__senderStream` = canvas.captureStream(30) on the page. Returns the
+ * sender page (kept alive for the receiver's stream).
  */
 export async function startSenderBroadcast(
   context: BrowserContext,
   fixture: TransferFixture,
+  opts: StartSenderBroadcastOptions = {},
 ): Promise<Page> {
   const sender = await context.newPage()
   await sender.setViewportSize(SENDER_VIEWPORT)
+  if (opts.settings?.highRefresh === true) {
+    // Fake a >=90 Hz display BEFORE the app probes it: detectRefreshRate reads
+    // the __qrRefreshRateOverride hook first, which is what enables the
+    // high-refresh switch (and the 30 fps option) on the settings panel.
+    await sender.addInitScript(() => {
+      window.__qrRefreshRateOverride = 120
+    })
+  }
   await sender.goto('/')
   await sender.getByRole('button', { name: 'Send a file' }).click()
   await sender.locator('input[type="file"]').setInputFiles({
@@ -49,7 +71,9 @@ export async function startSenderBroadcast(
     mimeType: fixture.mime,
     buffer: fixture.bytes,
   })
-  await sender.getByRole('button', { name: 'Begin broadcast' }).click()
+  await waitForSettingsPanel(sender)
+  await applySenderSettings(sender, opts.settings ?? {})
+  await clickBeginBroadcast(sender)
   await waitForQrCanvas(sender)
   await sender.evaluate(() => {
     const canvas = document.querySelector('canvas.qr-canvas')

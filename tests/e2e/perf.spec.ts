@@ -1,16 +1,21 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import {
+  applySenderSettings,
+  clickBeginBroadcast,
+  waitForSettingsPanel,
+} from './helpers/sender-settings'
 
 /**
  * Real-browser perf envelope for the sender broadcast path.
  *
- * Measures the ACTUAL broadcast loop on a 1600x1600 viewport (grid profile:
- * canvasSize >= GRID_MIN_CANVAS_PX) and an 800x800 viewport (single-V40
- * profile): sustained tick rate over an ~6-8s window, derived average tick
- * time, the final stats chips (profile / k / dropped), and the px/module
+ * Measures the ACTUAL broadcast loop on a 1600x1600 and an 800x800 viewport
+ * (suggestLayout returns the 2×2 grid for both square canvases, so both drive
+ * the grid4 layout): sustained tick rate over an ~6-8s window, derived average
+ * tick time, the final stats chips (profile / k / dropped), and the px/module
  * geometry the camera would see. Assertions are deliberately loose — CI
  * machines vary — and the measured numbers are logged for docs/PERF.md. The
  * receiver decode rate is measured at the unit level (tests/unit/perf.test.ts)
- * since the virtual-camera transfer e2e (T18) has not landed.
+ * since it is dominated by the broadcast cadence measured here.
  */
 
 const GRID_MIN_CANVAS_PX = 1600
@@ -39,11 +44,17 @@ interface BroadcastSample {
   state: { chips: string; canvasSize: number; ppm: number }
 }
 
-/** Drives the UI into a live broadcast and samples the fps chip for windowMs. */
+interface SampleOptions {
+  /** fps option to select on the settings panel before beginning. */
+  readonly fps?: 12 | 15 | 24 | 30
+}
+
+/** Drives the UI through pick → settings → live broadcast and samples the fps chip for windowMs. */
 async function sampleBroadcast(
-  page: import('@playwright/test').Page,
+  page: Page,
   viewport: { width: number; height: number },
   windowMs: number,
+  opts: SampleOptions = {},
 ): Promise<BroadcastSample> {
   await page.setViewportSize(viewport)
   await page.goto('/')
@@ -53,7 +64,19 @@ async function sampleBroadcast(
     mimeType: 'application/octet-stream',
     buffer: randomBytes(64 * 1024, 0x51a1e),
   })
-  await page.getByRole('button', { name: 'Begin broadcast' }).click()
+  // Settings phase (between pick and broadcast): wait for the panel, optionally
+  // select an fps option, then begin.
+  await waitForSettingsPanel(page)
+  if (opts.fps !== undefined) {
+    if (opts.fps === 30) {
+      // 30 fps only exists on a >=90 Hz display; the high-refresh switch being
+      // enabled proves the capability gate opened (the e2e fakes the display
+      // via the __qrRefreshRateOverride init script).
+      await expect(page.getByRole('switch', { name: 'High refresh rate' })).toBeEnabled()
+    }
+    await applySenderSettings(page, { fps: opts.fps })
+  }
+  await clickBeginBroadcast(page)
   await expect(page.locator('.stats-chips').getByText(/fps/)).toBeVisible()
 
   const samples = await page.evaluate(async (ms: number) => {
@@ -79,8 +102,9 @@ async function sampleBroadcast(
         .join(' | ')
     const canvas = document.querySelector('canvas.qr-canvas')
     const side = canvas instanceof HTMLCanvasElement ? Math.min(canvas.width, canvas.height) : 0
-    // The app always broadcasts the grid profile (chooseProfile is not wired
-    // into the broadcast path), so px/module comes from the grid tile area.
+    // suggestLayout() returns the 2×2 grid for both square viewports (>= the
+    // 800px grid4 threshold), and the settings phase defaults to that layout,
+    // so px/module comes from one of the four V27 (1 KB profile) tile cells.
     const modules = 27 * 4 + 17 + 2 * 4
     return { chips: chips(), canvasSize: side, ppm: Math.floor(side / 2 / modules) }
   })
@@ -126,4 +150,35 @@ test('compact-canvas grid broadcast (800px, ~3px/module tiles) sustains its fps 
   expect(state.canvasSize).toBeLessThan(GRID_MIN_CANVAS_PX)
   expect(state.ppm).toBeGreaterThanOrEqual(2)
   expect(avgFps).toBeGreaterThanOrEqual(8)
+})
+
+test('high-refresh display override sustains a 30 fps broadcast on a 1600px canvas', async ({
+  page,
+}) => {
+  // Fake a 120 Hz display: detectRefreshRate reads window.__qrRefreshRateOverride
+  // first, so the settings panel enables the high-refresh switch and the 30 fps
+  // option. The init script must be installed before the sender page navigates
+  // (the probe runs during file preparation).
+  await page.addInitScript(() => {
+    window.__qrRefreshRateOverride = 120
+  })
+  const { samples, state } = await sampleBroadcast(page, { width: 1600, height: 1600 }, 6000, {
+    fps: 30,
+  })
+  const avgFps = samples.reduce((a, b) => a + b, 0) / Math.max(1, samples.length)
+  const avgTickMs = samples.reduce((a, b) => a + 1000 / b, 0) / Math.max(1, samples.length)
+  console.log(
+    `[perf-e2e] high-refresh: samples=${samples.length} avgFps=${avgFps.toFixed(1)} minFps=${Math.min(...samples).toFixed(1)} ` +
+      `avgTickMs=${avgTickMs.toFixed(1)}`,
+  )
+  console.log(`[perf-e2e] high-refresh: chips: ${state.chips}`)
+  console.log(
+    `[perf-e2e] high-refresh: canvas ${state.canvasSize}x${state.canvasSize}px -> ~${state.ppm} px/module`,
+  )
+  expect(samples.length).toBeGreaterThanOrEqual(4)
+  expect(state.canvasSize).toBeGreaterThanOrEqual(GRID_MIN_CANVAS_PX)
+  // The 120 Hz override fakes only the DISPLAY capability — headless rAF stays
+  // at 60 Hz, so a 30 fps target quantizes to every second frame (~30 fps).
+  // Keep the floor generous (>=20) against CI jitter and log the measured rate.
+  expect(avgFps).toBeGreaterThanOrEqual(20)
 })
