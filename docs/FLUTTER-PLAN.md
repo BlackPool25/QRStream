@@ -82,7 +82,7 @@ qr-data-transfer/
 | W2 | RaptorQ FFI: api.rs + **PWA-packet interop test** + FRB bridge + facade + fountain interface | ✅ done (5 cargo + 93 dart tests) |
 | W3 | Sender: settings/pacing/pipeline/qr_encode + broadcast controller + app scaffold | ✅ done (163 dart + 8 flutter tests) |
 | W4 | Receiver: frames/stats/reassembler/**full-stack interop**/decode_pool + camera_service + saver | ✅ done (full-stack interop == original.bin, byte-identical) |
-| W5 | UI: brown theme, adaptive shell, send/settings/broadcast/receive views, app entry | ⚠️ **send_view + settings_panel were stubs — REAL versions now written (D9 cache/back-nav included); shell test failing, needs fix + verification** |
+| W5 | UI: brown theme, adaptive shell, send/settings/broadcast/receive views, app entry | ✅ done — send view + settings panel now real (D9 cache/back-nav), 36 flutter tests green |
 | W6 | README, reverse interop, final builds (apk + linux) | ⏳ pending |
 
 ## 6. Brown theme (research-locked, do not deviate)
