@@ -56,9 +56,11 @@ test('service worker precaches both wasm modules and serves the app offline', as
   await context.setOffline(true)
   await page.reload({ waitUntil: 'domcontentloaded' })
 
-  // Then the app still renders — served from the SW's precache
+  // Then the app still renders — served from the SW's precache. The home
+  // screen's two mode buttons are the stable content contract of the real UI.
   await expect(page.getByText('QR Data Transfer')).toBeVisible()
-  await expect(page.getByText('scaffold OK')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send a file' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Receive a file' })).toBeVisible()
 
   await context.setOffline(false)
 })
