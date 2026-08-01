@@ -19,7 +19,7 @@
     // ── Target ────────────────────────────────────────────────
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
 
     // ── JSX (Preact) ──────────────────────────────────────────
     "jsx": "react-jsx",
