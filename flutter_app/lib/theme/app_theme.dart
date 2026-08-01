@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'app_theme_constants.dart';
 
 export 'app_theme_constants.dart' show qrStageBackground;
+
+/// Bundled Fraunces variable font family (see pubspec `flutter: fonts:`);
+/// declared with the same name the asset registers, so text styles can
+/// reference it directly — no google_fonts indirection.
+const String _frauncesFamily = 'Fraunces';
 
 /// Builds the app-wide Material 3 theme for [brightness].
 ///
@@ -12,11 +16,6 @@ export 'app_theme_constants.dart' show qrStageBackground;
 /// `app_theme_constants.dart`. Do not improvise values; change the constants
 /// and the theme test together.
 ThemeData buildAppTheme(Brightness brightness) {
-  // Offline-first: never fetch fonts at runtime. Fraunces is bundled as an
-  // asset (see pubspec `flutter: fonts:`), so text rendering falls back to
-  // the declared 'Fraunces' family instead of a network fetch.
-  GoogleFonts.config.allowRuntimeFetching = false;
-
   final isLight = brightness == Brightness.light;
   final scheme = ColorScheme.fromSeed(
     seedColor: seedBrown,
@@ -33,12 +32,16 @@ ThemeData buildAppTheme(Brightness brightness) {
   );
 
   // Fraunces drives the display/headline tiers; body stays on the default
-  // Material type so dense screens read as system text.
+  // Material type so dense screens read as system text. The bundled variable
+  // font carries all weights, so plain fontFamily + the theme's FontWeight
+  // resolve correctly offline.
   final base = ThemeData(
     brightness: brightness,
     useMaterial3: true,
   ).textTheme;
-  final fraunces = GoogleFonts.frauncesTextTheme(base);
+  TextStyle? fraunces(TextStyle? style) => style?.copyWith(
+    fontFamily: _frauncesFamily,
+  );
 
   return ThemeData(
     useMaterial3: true,
@@ -46,12 +49,12 @@ ThemeData buildAppTheme(Brightness brightness) {
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
     textTheme: base.copyWith(
-      displayLarge: fraunces.displayLarge,
-      displayMedium: fraunces.displayMedium,
-      displaySmall: fraunces.displaySmall,
-      headlineLarge: fraunces.headlineLarge,
-      headlineMedium: fraunces.headlineMedium,
-      headlineSmall: fraunces.headlineSmall,
+      displayLarge: fraunces(base.displayLarge),
+      displayMedium: fraunces(base.displayMedium),
+      displaySmall: fraunces(base.displaySmall),
+      headlineLarge: fraunces(base.headlineLarge),
+      headlineMedium: fraunces(base.headlineMedium),
+      headlineSmall: fraunces(base.headlineSmall),
     ),
   );
 }

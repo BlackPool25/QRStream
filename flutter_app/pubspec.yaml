@@ -51,8 +51,6 @@ dependencies:
   wakelock_plus: ^1.7.0
   # MIME type from extension.
   mime: ^2.0.0
-  # Fraunces display font (bundled; no runtime fetch).
-  google_fonts: ^8.2.1
   # SHA-256 (pure Dart, mirrors crypto dep in core).
   crypto: ^3.0.7
   collection: ^1.19.1
@@ -84,9 +82,8 @@ flutter:
   uses-material-design: true
 
   fonts:
-    # Fraunces display/headline face, bundled for offline use (no runtime
-    # fetch; google_fonts falls back to this family via allowRuntimeFetching
-    # = false). Variable font with opsz/wght axes — wght maps to FontWeight.
+    # Fraunces display/headline face, bundled for offline use. Variable font
+    # with opsz/wght axes — wght maps to FontWeight.
     - family: Fraunces
       fonts:
         - asset: assets/fonts/Fraunces-VariableFont_opsz,wght.ttf

@@ -64,6 +64,12 @@ Future<void> _initRustLib(String? dylibPath) async {
 /// build if present, then the release build, then the debug path (letting the
 /// load fail with a clear error).
 ///
+/// The CWD is NOT a reliable base — `flutter run -d linux` sets it to the app
+/// dir, but launching the bundle directly (or from another directory) does
+/// not. So the repo-relative paths are resolved against the EXECUTABLE's
+/// location first (walking up to the checkout), then against the CWD, then
+/// the bundled-next-to-the-executable location (a standalone release copy).
+///
 /// On Android the codec ships inside the APK as `lib/<abi>/libqr_transfer_rust.so`
 /// (see `scripts/build-android-so.sh`); dlopen finds it by bare name, so the
 /// host-path checks are skipped entirely.
@@ -81,13 +87,43 @@ String resolveDylibPathFor(bool isAndroid) {
   if (fromEnv != null && fromEnv.isNotEmpty) {
     return fromEnv;
   }
-  if (File(_defaultDebugDylibPath).existsSync()) {
-    return _defaultDebugDylibPath;
-  }
-  if (File(_defaultReleaseDylibPath).existsSync()) {
-    return _defaultReleaseDylibPath;
+  for (final candidate in _dylibCandidates()) {
+    if (File(candidate).existsSync()) {
+      return candidate;
+    }
   }
   return _defaultDebugDylibPath;
+}
+
+/// Ordered dylib locations: bundled next to the executable, then the repo
+/// checkout relative to the executable (bundle at
+/// `flutter_app/build/linux/<arch>/<mode>/bundle`), then CWD-relative
+/// (`flutter run` from `flutter_app/`).
+Iterable<String> _dylibCandidates() sync* {
+  final exeDir = File(Platform.resolvedExecutable).parent.path;
+  yield '$exeDir/lib/libqr_transfer_rust.so';
+  final repo = _walkUpToCheckout(exeDir);
+  if (repo != null) {
+    yield '$repo/rust/target/debug/libqr_transfer_rust.so';
+    yield '$repo/rust/target/release/libqr_transfer_rust.so';
+  }
+  yield _defaultDebugDylibPath;
+  yield _defaultReleaseDylibPath;
+}
+
+/// Walks up from [dir] (max 10 levels) looking for a directory containing
+/// `rust/Cargo.toml` — the flutter_app checkout. Returns its path or null.
+String? _walkUpToCheckout(String dir) {
+  var current = dir;
+  for (var i = 0; i < 10; i++) {
+    if (File('$current/rust/Cargo.toml').existsSync()) {
+      return current;
+    }
+    final parent = Directory(current).parent.path;
+    if (parent == current) return null; // filesystem root
+    current = parent;
+  }
+  return null;
 }
 
 /// Reads the ESI (encoding symbol id) from a wire-serialized RaptorQ packet:
