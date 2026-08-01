@@ -6,7 +6,13 @@
  */
 
 export type CameraErrorCode =
-  'not-allowed' | 'not-found' | 'not-readable' | 'not-supported' | 'overconstrained' | 'unknown'
+  | 'not-allowed'
+  | 'not-found'
+  | 'not-readable'
+  | 'not-supported'
+  | 'insecure-context'
+  | 'overconstrained'
+  | 'unknown'
 
 /** Typed camera error; `code` lets the UI branch on the failure kind. */
 export class CameraError extends Error {
@@ -85,6 +91,18 @@ export async function acquireCamera(
   onTrack: (track: MediaStreamTrack) => void,
 ): Promise<MediaStream> {
   if (typeof navigator === 'undefined' || navigator.mediaDevices?.getUserMedia === undefined) {
+    // Browsers hide the whole mediaDevices API on insecure origins, so a
+    // missing API on a real device almost always means plain-HTTP serving.
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.isSecureContext === 'boolean' &&
+      window.isSecureContext === false
+    ) {
+      throw new CameraError(
+        'insecure-context',
+        'Camera access requires a secure context (HTTPS or localhost); the page is served over plain HTTP',
+      )
+    }
     throw new CameraError('not-supported', 'getUserMedia is not available in this environment')
   }
   try {

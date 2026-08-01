@@ -29,6 +29,8 @@ function cameraErrorMessage(error: unknown): string {
         return 'The camera could not match the requested settings.'
       case 'not-supported':
         return 'This browser does not support camera scanning.'
+      case 'insecure-context':
+        return 'Camera access needs HTTPS or localhost. You are opening this page over plain HTTP — serve it via https:// or localhost, then reload.'
       default:
         return error.message
     }

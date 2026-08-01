@@ -193,4 +193,29 @@ describe('acquireCamera', () => {
       })
     })
   })
+
+  it('reports insecure-context when mediaDevices is missing on a plain-HTTP page', async () => {
+    const mockNavigator = {} as unknown as Navigator
+    const realWindow = globalThis.window
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    Object.defineProperty(globalThis, 'window', {
+      value: { isSecureContext: false },
+      configurable: true,
+    })
+
+    try {
+      await withNavigatorMock(mockNavigator, async () => {
+        await expect(acquireCamera(buildConstraints(), () => undefined)).rejects.toMatchObject({
+          name: 'CameraError',
+          code: 'insecure-context',
+        })
+      })
+    } finally {
+      if (windowDescriptor === undefined) {
+        Reflect.deleteProperty(globalThis, 'window')
+      } else if (realWindow === undefined) {
+        Object.defineProperty(globalThis, 'window', windowDescriptor)
+      }
+    }
+  })
 })
