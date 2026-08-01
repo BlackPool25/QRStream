@@ -3,6 +3,7 @@
 /// scanning ([MlKitFrameDecoder]); tests inject a fake.
 library;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 import 'package:camera/camera.dart';
@@ -42,45 +43,94 @@ class MlKitFrameDecoder implements FrameDecoder {
   }) async {
     final planes = image.planes;
     if (planes.isEmpty) return const [];
-    // The camera plugin is configured for NV21, so it delivers ONE tight
-    // plane (Y + interleaved VU, no row padding) — the layout ML Kit's
-    // InputImage.fromBytes accepts. Other layouts are converted with the
-    // plugin's own unpackPlane semantics so the output is byte-identical to
-    // what the plugin would have produced.
-    final (Uint8List bytes, int bytesPerRow) =
-        planes.length == 1
-            ? (planes[0].bytes, planes[0].bytesPerRow)
-            : (_toNv21(image), image.width);
-    final input = InputImage.fromBytes(
-      bytes: bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: _rotationFor(rotationDegrees),
-        format: InputImageFormat.nv21,
-        bytesPerRow: bytesPerRow,
-      ),
-    );
-    try {
-      final barcodes = await _scanner.processImage(input);
-      return [
-        for (final barcode in barcodes)
-          if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
-      ];
-    } on PlatformException catch (e) {
-      // Surface the frame layout so a failing device pinpoints the path:
-      // single-plane NV21 (camera_android's own conversion) vs the 3-plane
-      // fallback, with dims/strides/byte lengths.
-      final layout =
-          'planes=${planes.length} fmt=${image.format.raw} '
-          '${image.width}x${image.height} '
-          'bytes=${planes.map((p) => p.bytes.length).toList()} '
-          'strides=${planes.map((p) => p.bytesPerRow).toList()} '
-          'pix=${planes.map((p) => p.bytesPerPixel).toList()}';
-      throw PlatformException(
-        code: e.code,
-        message: '${e.message} [${e.details}] frame=$layout',
-      );
+    final rotation = _rotationFor(rotationDegrees);
+    final size = Size(image.width.toDouble(), image.height.toDouble());
+
+    // Try the layouts in order; ML Kit's native converter has device-specific
+    // quirks (some devices reject even byte-perfect NV21 with an NPE), so the
+    // first layout the device accepts wins.
+    final attempts = <({InputImageFormat format, Uint8List bytes})>[
+      if (planes.length == 1) ...[
+        // camera_android's own NV21 conversion: one tight plane.
+        (format: InputImageFormat.nv21, bytes: planes[0].bytes),
+        // I420 derived from that NV21 plane.
+        (format: InputImageFormat.yuv_420_888, bytes: nv21ToI420ForTest(planes[0].bytes, image.width, image.height)),
+      ] else ...[
+        // Replicate the plugin's conversion semantics byte-for-byte.
+        (format: InputImageFormat.nv21, bytes: _toNv21(image)),
+        // Tightly-packed planar I420 (padding stripped from each plane).
+        (format: InputImageFormat.yuv_420_888, bytes: _toI420(image)),
+      ],
+    ];
+
+    Object? lastError;
+    for (final attempt in attempts) {
+      try {
+        final input = InputImage.fromBytes(
+          bytes: attempt.bytes,
+          metadata: InputImageMetadata(
+            size: size,
+            rotation: rotation,
+            format: attempt.format,
+            bytesPerRow: image.width,
+          ),
+        );
+        final barcodes = await _scanner.processImage(input);
+        return [
+          for (final barcode in barcodes)
+            if (barcode.rawBytes != null) DecodeResult(bytes: barcode.rawBytes),
+        ];
+      } on PlatformException catch (e) {
+        lastError = e;
+      }
     }
+    // All layouts failed — surface the frame layout so a failing device
+    // pinpoints the path and dimensions.
+    final layout =
+        'planes=${planes.length} fmt=${image.format.raw} '
+        '${image.width}x${image.height} '
+        'bytes=${planes.map((p) => p.bytes.length).toList()} '
+        'strides=${planes.map((p) => p.bytesPerRow).toList()} '
+        'pix=${planes.map((p) => p.bytesPerPixel).toList()}';
+    throw PlatformException(
+      code: 'MlKitDecode',
+      message: '${lastError is PlatformException ? lastError.message : lastError} '
+          'frame=$layout',
+    );
+  }
+
+  /// Splits a single-plane NV21 buffer into tightly-packed planar I420
+  /// (Y + U + V) — the other layout Android ML Kit's converter accepts.
+  @visibleForTesting
+  static Uint8List nv21ToI420ForTest(Uint8List nv21, int width, int height) {
+    final ySize = width * height;
+    final out = Uint8List(ySize * 3 ~/ 2);
+    out.setRange(0, ySize, nv21, 0);
+    var u = ySize;
+    var v = ySize + ySize ~/ 4;
+    for (var i = ySize; i + 1 < nv21.length; i += 2) {
+      out[v++] = nv21[i]; // V at even UV offsets
+      out[u++] = nv21[i + 1]; // U at odd UV offsets
+    }
+    return out;
+  }
+
+  /// Tightly-packed planar I420: Y + U + V, row padding stripped.
+  static Uint8List _toI420(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final out = Uint8List(width * height * 3 ~/ 2);
+    _unpackPlane(image.planes[0], width, height, out, 0, 1);
+    _unpackPlane(image.planes[1], width, height, out, width * height, 1);
+    _unpackPlane(
+      image.planes[2],
+      width,
+      height,
+      out,
+      width * height * 5 ~/ 4,
+      1,
+    );
+    return out;
   }
 
   /// Converts multi-plane YUV420 to a tight NV21 buffer using the camera
