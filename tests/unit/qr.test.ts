@@ -10,7 +10,13 @@ import {
   GRID_VERSION,
   MAX_CAPACITY,
 } from '../../src/qr/encode'
-import { integerScalePx, MIN_QUIET_ZONE, renderGrid, renderSingle } from '../../src/qr/render'
+import {
+  integerScalePx,
+  MIN_QUIET_ZONE,
+  renderGrid,
+  renderSingle,
+  renderTiles,
+} from '../../src/qr/render'
 
 // Node builtin type shims for the zxing wasm loader live in node-shims.d.ts.
 
@@ -45,19 +51,21 @@ async function decodeFrame(
   rgba: Uint8Array,
   canvasSize: number,
   isPure: boolean,
+  canvasHeight?: number,
+  maxNumberOfSymbols = 4,
 ): Promise<ReadResult[]> {
   return readBarcodes(
     {
       data: new Uint8ClampedArray(rgba),
       width: canvasSize,
-      height: canvasSize,
+      height: canvasHeight ?? canvasSize,
       // Node has no ImageData global, and zxing-wasm's top-level signature
       // references the DOM ImageData type, which requires colorSpace.
       colorSpace: 'srgb',
     },
     {
       formats: ['QRCode'],
-      maxNumberOfSymbols: 4,
+      maxNumberOfSymbols,
       ...(isPure ? { isPure: true } : {}),
     },
   )
@@ -259,16 +267,28 @@ function countRingViolations(
   tileSide: number,
   ringPx: number,
 ): number {
+  return countRingViolationsRect(frame, canvasSize, canvasSize, ox, oy, tileSide, ringPx)
+}
+
+function countRingViolationsRect(
+  frame: Uint8Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  ox: number,
+  oy: number,
+  tileSide: number,
+  ringPx: number,
+): number {
   let violations = 0
-  for (let y = 0; y < canvasSize; y++) {
-    for (let x = 0; x < canvasSize; x++) {
+  for (let y = 0; y < canvasHeight; y++) {
+    for (let x = 0; x < canvasWidth; x++) {
       const insideTile = x >= ox && x < ox + tileSide && y >= oy && y < oy + tileSide
       const insideRing =
         x >= ox - ringPx &&
         x < ox + tileSide + ringPx &&
         y >= oy - ringPx &&
         y < oy + tileSide + ringPx
-      if (insideRing && !insideTile && frame[(y * canvasSize + x) * 4] !== 255) {
+      if (insideRing && !insideTile && frame[(y * canvasWidth + x) * 4] !== 255) {
         violations++
       }
     }
@@ -338,5 +358,252 @@ describe('integerScalePx', () => {
 
   it('never returns 0 even when the target is smaller than the module count', () => {
     expect(integerScalePx(177, 176)).toBe(1)
+  })
+})
+
+// ── N×M renderTiles ────────────────────────────────────────────────────────
+
+describe('renderTiles N×M composition', () => {
+  const ppm = 4
+  const v27 = encodeQrBytes(pseudoRandomBytes(GRID_CAPACITY), { version: GRID_VERSION })
+  const v27TileSide = (v27.size + MIN_QUIET_ZONE * 2) * ppm // 532 at ppm 4
+
+  it('recovers all 3 payloads from a 3×1 row on a landscape canvas', async () => {
+    const payloads = [0x31, 0x32, 0x33].map((seed) => pseudoRandomBytes(GRID_CAPACITY, seed))
+    const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
+    const canvasWidth = 1800 // 3 cells of 600
+    const canvasHeight = 800 // taller cells: tiles vertically centered in 600×800
+    const frame = renderTiles(matrices, {
+      modules: ppm,
+      cols: 3,
+      rows: 1,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth,
+      canvasHeight,
+    })
+    expect(frame.length).toBe(canvasWidth * canvasHeight * 4)
+
+    const results = await decodeFrame(frame, canvasWidth, false, canvasHeight, 3)
+    const recovered = results.map((r) => [...r.bytes].join(','))
+    for (const p of payloads) {
+      expect(recovered).toContain([...p].join(','))
+    }
+  })
+
+  it('recovers all 3 payloads from a 1×3 column on a portrait canvas', async () => {
+    const payloads = [0x41, 0x42, 0x43].map((seed) => pseudoRandomBytes(GRID_CAPACITY, seed))
+    const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
+    const canvasWidth = 800
+    const canvasHeight = 1800 // 3 cells of 600 stacked vertically
+    const frame = renderTiles(matrices, {
+      modules: ppm,
+      cols: 1,
+      rows: 3,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth,
+      canvasHeight,
+    })
+    expect(frame.length).toBe(canvasWidth * canvasHeight * 4)
+
+    const results = await decodeFrame(frame, canvasWidth, false, canvasHeight, 3)
+    const recovered = results.map((r) => [...r.bytes].join(','))
+    for (const p of payloads) {
+      expect(recovered).toContain([...p].join(','))
+    }
+  })
+
+  it('recovers all 9 payloads from a 3×3 grid', async () => {
+    const payloads = [0x901, 0x902, 0x903, 0x904, 0x905, 0x906, 0x907, 0x908, 0x909].map((seed) =>
+      pseudoRandomBytes(GRID_CAPACITY, seed),
+    )
+    const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
+    const canvasSize = 1800 // 3 cells of 600
+    const frame = renderTiles(matrices, {
+      modules: ppm,
+      cols: 3,
+      rows: 3,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: canvasSize,
+    })
+    expect(frame.length).toBe(canvasSize * canvasSize * 4)
+
+    const results = await decodeFrame(frame, canvasSize, false, canvasSize, 9)
+    const recovered = results.map((r) => [...r.bytes].join(','))
+    for (const p of payloads) {
+      expect(recovered).toContain([...p].join(','))
+    }
+  })
+
+  it('recovers a 2048-byte V33 tile at ppm 3', async () => {
+    const payload = pseudoRandomBytes(2048)
+    const matrix = encodeQrBytes(payload, { version: 33 })
+    expect(matrix.size).toBe(149) // 33*4 + 17
+    const tilePpm = 3
+    const canvasSize = (matrix.size + MIN_QUIET_ZONE * 2) * tilePpm // 471
+    const frame = renderTiles([matrix], {
+      modules: tilePpm,
+      cols: 1,
+      rows: 1,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: canvasSize,
+    })
+    const result = expectSingleResult(await decodeFrame(frame, canvasSize, true))
+    expect(result.isValid).toBe(true)
+    expect([...result.bytes]).toEqual([...payload])
+  })
+
+  it('recovers a 2560-byte V40 tile at ppm 3', async () => {
+    const payload = pseudoRandomBytes(2560)
+    const matrix = encodeQrBytes(payload, { version: 40 })
+    expect(matrix.size).toBe(177) // 40*4 + 17
+    const tilePpm = 3
+    const canvasSize = (matrix.size + MIN_QUIET_ZONE * 2) * tilePpm // 555
+    const frame = renderTiles([matrix], {
+      modules: tilePpm,
+      cols: 1,
+      rows: 1,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: canvasSize,
+    })
+    const result = expectSingleResult(await decodeFrame(frame, canvasSize, true))
+    expect(result.isValid).toBe(true)
+    expect([...result.bytes]).toEqual([...payload])
+  })
+
+  it('fills null cells black and still recovers the real tiles', async () => {
+    const a = pseudoRandomBytes(64, 0xa11)
+    const b = pseudoRandomBytes(64, 0xb22)
+    const frame = renderTiles(
+      [
+        encodeQrBytes(a, { version: GRID_VERSION }),
+        null,
+        encodeQrBytes(b, { version: GRID_VERSION }),
+      ],
+      {
+        modules: ppm,
+        cols: 3,
+        rows: 1,
+        quietZone: MIN_QUIET_ZONE,
+        canvasWidth: 1800,
+        canvasHeight: 800,
+      },
+    )
+
+    // center of the middle (null) cell — x in [600, 1200), y in [0, 800)
+    const nullCenter = (400 * 1800 + 900) * 4
+    expect(frame[nullCenter]).toBe(0)
+    expect(frame[nullCenter + 1]).toBe(0)
+    expect(frame[nullCenter + 2]).toBe(0)
+    expect(frame[nullCenter + 3]).toBe(255)
+
+    const results = await decodeFrame(frame, 1800, false, 800, 3)
+    const recovered = results.map((r) => [...r.bytes].join(','))
+    expect(recovered).toContain([...a].join(','))
+    expect(recovered).toContain([...b].join(','))
+  })
+
+  it('keeps the quiet zone around every tile in a 3×3 grid', () => {
+    const frame = renderTiles(Array(9).fill(v27), {
+      modules: ppm,
+      cols: 3,
+      rows: 3,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: 1800,
+    })
+    const cell = 600
+    for (let i = 0; i < 9; i++) {
+      const ox = (i % 3) * cell + Math.floor((cell - v27TileSide) / 2)
+      const oy = Math.floor(i / 3) * cell + Math.floor((cell - v27TileSide) / 2)
+      expect(
+        countRingViolationsRect(frame, 1800, 1800, ox, oy, v27TileSide, MIN_QUIET_ZONE * ppm),
+      ).toBe(0)
+    }
+  })
+
+  it('keeps the quiet zone around every tile in a 3×1 row on a landscape canvas', () => {
+    const frame = renderTiles([v27, v27, v27], {
+      modules: ppm,
+      cols: 3,
+      rows: 1,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: 1800,
+      canvasHeight: 800,
+    })
+    const cellW = 600
+    const cellH = 800
+    for (let i = 0; i < 3; i++) {
+      const ox = i * cellW + Math.floor((cellW - v27TileSide) / 2)
+      const oy = Math.floor((cellH - v27TileSide) / 2)
+      expect(
+        countRingViolationsRect(frame, 1800, 800, ox, oy, v27TileSide, MIN_QUIET_ZONE * ppm),
+      ).toBe(0)
+    }
+  })
+
+  it('rejects empty tile lists', () => {
+    expect(() => renderTiles([], { modules: ppm, cols: 2, rows: 2, canvasWidth: 100 })).toThrow(
+      RangeError,
+    )
+  })
+
+  it('rejects more tiles than cells', () => {
+    const m = () => encodeQrBytes(pseudoRandomBytes(10))
+    expect(() =>
+      renderTiles([m(), m(), m(), m(), m()], {
+        modules: ppm,
+        cols: 2,
+        rows: 2,
+        canvasWidth: 100,
+      }),
+    ).toThrow(RangeError)
+  })
+
+  it('rejects tiles larger than their cell', () => {
+    expect(() => renderTiles([v27], { modules: 8, cols: 1, rows: 1, canvasWidth: 400 })).toThrow(
+      RangeError,
+    )
+  })
+
+  it('renders a portrait canvas at canvasWidth × canvasHeight × 4', () => {
+    const m = encodeQrBytes(pseudoRandomBytes(64))
+    const frame = renderTiles([m], {
+      modules: ppm,
+      cols: 1,
+      rows: 1,
+      quietZone: MIN_QUIET_ZONE,
+      canvasWidth: 900,
+      canvasHeight: 2400,
+    })
+    expect(frame.length).toBe(900 * 2400 * 4) // 8,640,000
+  })
+
+  it('renderGrid (4 tiles) is byte-identical to renderTiles with cols 2 rows 2', () => {
+    const payloads = [0x71, 0x72, 0x73, 0x74].map((seed) => pseudoRandomBytes(GRID_CAPACITY, seed))
+    const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
+    const canvasSize = 1600
+    const grid = renderGrid(matrices, { modules: ppm, quietZone: MIN_QUIET_ZONE, canvasSize })
+    const tiles = renderTiles(matrices, {
+      modules: ppm,
+      quietZone: MIN_QUIET_ZONE,
+      cols: 2,
+      rows: 2,
+      canvasWidth: canvasSize,
+    })
+    expect(grid.length).toBe(tiles.length)
+    expect(grid.every((v, i) => v === tiles[i])).toBe(true)
+  })
+
+  it('renderSingle is byte-identical to renderTiles with cols 1 rows 1', () => {
+    const canvasSize = 1600
+    const single = renderSingle(v27, { modules: ppm, quietZone: MIN_QUIET_ZONE, canvasSize })
+    const tiles = renderTiles([v27], {
+      modules: ppm,
+      quietZone: MIN_QUIET_ZONE,
+      cols: 1,
+      rows: 1,
+      canvasWidth: canvasSize,
+    })
+    expect(single.length).toBe(tiles.length)
+    expect(single.every((v, i) => v === tiles[i])).toBe(true)
   })
 })
