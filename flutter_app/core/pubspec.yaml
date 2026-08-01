@@ -1,0 +1,14 @@
+name: qr_transfer_core
+description: Pure-Dart core for the QR Data Transfer Flutter app (protocol, codec, sender, receiver).
+version: 0.1.0
+environment:
+  sdk: ^3.11.0
+dependencies:
+  crypto: ^3.0.7
+  collection: ^1.19.1
+  intl: ^0.20.3
+  qr: ^4.0.0
+  zxing2: ^0.2.4
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0
