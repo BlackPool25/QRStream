@@ -1,0 +1,11 @@
+# OMO / codegraph internals — never touched by tooling
+.omo/
+.codegraph/
+
+node_modules/
+dist/
+dev-dist/
+coverage/
+.playwright/
+*.local
+*.log

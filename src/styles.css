@@ -1,0 +1,32 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #0f1115;
+  color: #e6e8eb;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  text-align: center;
+  gap: 0.5rem;
+}
+
+.app h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.app p {
+  color: #9aa4b2;
+}

@@ -1,0 +1,23 @@
+# OMO / codegraph internals — must never be committed
+.omo/
+.codegraph
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dev-dist/
+coverage/
+
+# Playwright
+.playwright/
+test-results/
+
+# Local env / editor
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

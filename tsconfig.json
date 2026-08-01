@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    // ── Strict core ───────────────────────────────────────────
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+
+    // ── Module system ─────────────────────────────────────────
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "moduleDetection": "force",
+
+    // ── Target ────────────────────────────────────────────────
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["vite/client"],
+
+    // ── JSX (Preact) ──────────────────────────────────────────
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "useDefineForClassFields": true,
+
+    // ── Emit / typecheck only ─────────────────────────────────
+    "noEmit": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["src", "tests"]
+}
