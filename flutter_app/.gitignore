@@ -25,3 +25,4 @@ pubspec.lock
 
 # IDE / tooling metadata
 .idea/
+*.iml
