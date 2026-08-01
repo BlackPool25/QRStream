@@ -74,13 +74,21 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
-# The following section is specific to Flutter packages.
+  # The following section is specific to Flutter packages.
 flutter:
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  fonts:
+    # Fraunces display/headline face, bundled for offline use (no runtime
+    # fetch; google_fonts falls back to this family via allowRuntimeFetching
+    # = false). Variable font with opsz/wght axes — wght maps to FontWeight.
+    - family: Fraunces
+      fonts:
+        - asset: assets/fonts/Fraunces-VariableFont_opsz,wght.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
