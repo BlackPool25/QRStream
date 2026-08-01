@@ -143,7 +143,18 @@ async function runMtu(mtu, data, rng) {
     if (f === 0.2 && !loss[String(f)].ok) loss20Ok = false
   }
 
-  return { mtu, K, symbolSize, headerBytes, planMs, encodeMs, decodeMs, roundTripOk, loss20Ok, loss }
+  return {
+    mtu,
+    K,
+    symbolSize,
+    headerBytes,
+    planMs,
+    encodeMs,
+    decodeMs,
+    roundTripOk,
+    loss20Ok,
+    loss,
+  }
 }
 
 async function main() {
@@ -174,21 +185,29 @@ async function main() {
   console.log(`api (Vite/Vitest)      : ${apiVite}`)
   console.log(`api (plain Node)       : ${apiNode}  (no exports/main in pkg)`)
   console.log(`transfer_length        : BigInt`)
-  console.log(`wasm size              : ${(wasmBytesLen / 1024).toFixed(1)} KiB (${wasmBytesLen} B)`)
+  console.log(
+    `wasm size              : ${(wasmBytesLen / 1024).toFixed(1)} KiB (${wasmBytesLen} B)`,
+  )
   console.log(`wasm init time         : ${initMs.toFixed(1)} ms`)
   console.log(`payload                : ${(DATA_LEN / 1024).toFixed(0)} KiB pseudo-random`)
   for (const r of rows) {
     console.log('-----------------------------------------------------------')
-    console.log(`mtu=${r.mtu}  K(source symbols)=${r.K}  symbolSize=${r.symbolSize} B` +
-      `  pktHeader=${r.headerBytes} B  pktLen=${r.symbolSize + r.headerBytes} B  ` +
-      `plan(build)=${r.planMs.toFixed(1)} ms`)
-    console.log(`  round-trip (0% loss) : ${r.roundTripOk ? 'OK' : 'FAIL'}  ` +
-      `encode=${r.encodeMs.toFixed(1)} ms  decode=${r.decodeMs.toFixed(1)} ms`)
+    console.log(
+      `mtu=${r.mtu}  K(source symbols)=${r.K}  symbolSize=${r.symbolSize} B` +
+        `  pktHeader=${r.headerBytes} B  pktLen=${r.symbolSize + r.headerBytes} B  ` +
+        `plan(build)=${r.planMs.toFixed(1)} ms`,
+    )
+    console.log(
+      `  round-trip (0% loss) : ${r.roundTripOk ? 'OK' : 'FAIL'}  ` +
+        `encode=${r.encodeMs.toFixed(1)} ms  decode=${r.decodeMs.toFixed(1)} ms`,
+    )
     for (const f of LOSSES) {
       const l = r.loss[String(f)]
-      console.log(`  loss ${String(f * 100).padStart(2)}% : ${l.ok ? 'OK' : 'FAIL'}  ` +
-        `packets needed=${l.packetsNeeded}/${r.K}  overhead=${l.overhead.toFixed(3)}  ` +
-        `decode=${l.decodeMs.toFixed(1)} ms`)
+      console.log(
+        `  loss ${String(f * 100).padStart(2)}% : ${l.ok ? 'OK' : 'FAIL'}  ` +
+          `packets needed=${l.packetsNeeded}/${r.K}  overhead=${l.overhead.toFixed(3)}  ` +
+          `decode=${l.decodeMs.toFixed(1)} ms`,
+      )
     }
   }
   console.log('===========================================================')
@@ -204,6 +223,8 @@ async function main() {
 
 main().catch((err) => {
   console.error('SPIKE FAILED (uncaught):', err)
-  console.error('        raptorq@1.7.24 is not usable in this environment — see docs/decisions/raptorq.md.')
+  console.error(
+    '        raptorq@1.7.24 is not usable in this environment — see docs/decisions/raptorq.md.',
+  )
   process.exit(1)
 })

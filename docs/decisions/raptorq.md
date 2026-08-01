@@ -14,14 +14,14 @@ threaded wasm, no COOP/COEP needed). Proceed to the codec wrapper task (T9).
 `node scripts/spike-raptorq.mjs` — 1 MiB of deterministic pseudo-random bytes,
 both profile MTUs, 0%/10%/20% uniform packet loss:
 
-| MTU | K (source symbols) | symbol size | round-trip | overhead @ 0/10/20% loss |
-|---|---|---|---|---|
-| 1028 | 1024 | 1024 B | byte-identical | 1.000 / 1.000 / 1.000 |
-| 2052 | 512 | 2048 B | byte-identical | 1.000 / 1.000 / 1.000 |
+| MTU  | K (source symbols) | symbol size | round-trip     | overhead @ 0/10/20% loss |
+| ---- | ------------------ | ----------- | -------------- | ------------------------ |
+| 1028 | 1024               | 1024 B      | byte-identical | 1.000 / 1.000 / 1.000    |
+| 2052 | 512                | 2048 B      | byte-identical | 1.000 / 1.000 / 1.000    |
 
 - wasm 234.9 KiB, init ~31–63 ms, encode ~1.3–4.7 ms, decode ~1.4–12 ms (1 MiB).
 - **Zero decode overhead confirmed**: the decoder returns the file the moment it
-  has received exactly K *distinct* packets — no repair packets needed at 0%
+  has received exactly K _distinct_ packets — no repair packets needed at 0%
   loss, and only what was lost needs to be replaced at 10%/20% loss
   (overhead ratio = 1.000 in all cases). Systematic property confirmed:
   `encode(0)` returns exactly the K source packets.
@@ -83,7 +83,7 @@ both profile MTUs, 0%/10%/20% uniform packet loss:
 1. **Bare `import 'raptorq'` fails in BOTH Node and Vite 8.** The package ships
    only `"module": "raptorq.js"` — no `"exports"`/`"main"`. Node ESM falls back
    to a missing `index.js` (`ERR_MODULE_NOT_FOUND`); Vite 8 refuses with
-   *"Failed to resolve entry for package raptorq"*. **Every import (src wrapper,
+   _"Failed to resolve entry for package raptorq"_. **Every import (src wrapper,
    tests) must use the subpath `raptorq/raptorq.js`.**
 2. **`transfer_length` is BigInt**, not number.
 3. **4-byte packet header** (not the crate's 6-byte RFC serialization).
@@ -109,8 +109,8 @@ Full suite: `npx vitest run` → 8 files / 96 tests / exit 0.
   NOT spike-validated (would need an install + the same probe).
 - **(C) Self-built wasm-pack of `cberner/raptorq v2.0.1`.** Full control (proper
   `exports`, RFC 6330 6-byte serialization, upstream fixes). Cost: Rust toolchain
-  + wasm-pack + build CI. Trigger: if both (A) and (B) fail, or if RFC-exact
-  wire format is required.
+  - wasm-pack + build CI. Trigger: if both (A) and (B) fail, or if RFC-exact
+    wire format is required.
 
 ## Recommendation
 
