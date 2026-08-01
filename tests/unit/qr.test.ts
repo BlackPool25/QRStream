@@ -434,10 +434,10 @@ describe('renderTiles N×M composition', () => {
     }
   })
 
-  it('recovers a 2048-byte V33 tile at ppm 3', async () => {
+  it('recovers a 2048-byte V34 tile at ppm 3', async () => {
     const payload = pseudoRandomBytes(2048)
-    const matrix = encodeQrBytes(payload, { version: 33 })
-    expect(matrix.size).toBe(149) // 33*4 + 17
+    const matrix = encodeQrBytes(payload, { version: 34 })
+    expect(matrix.size).toBe(153) // 34*4 + 17
     const tilePpm = 3
     const canvasSize = (matrix.size + MIN_QUIET_ZONE * 2) * tilePpm // 471
     const frame = renderTiles([matrix], {

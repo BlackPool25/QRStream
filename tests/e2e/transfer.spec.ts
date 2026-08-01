@@ -77,6 +77,21 @@ test.describe('end-to-end transfer over the virtual camera', () => {
       settings: { bytesPerTile: '2.5k', layout: 'row3' },
     })
   })
+
+  test('receives a 2 KB (V34) broadcast byte-identical', async ({ context }) => {
+    test.setTimeout(120_000)
+    const fixture: TransferFixture = {
+      name: 'fixture-256k-2k.bin',
+      mime: RANDOM_MIME,
+      bytes: buildRandomBytes(256 * 1024, 7),
+    }
+    // Regression: the 2 KB profile originally used V33 whose forced-mask-2
+    // capacity (2068 B) could not hold the 2082 B wire frame, so every tile
+    // failed to encode and the broadcast rendered black. V34 (2188 B) fits.
+    await runTransfer(context, fixture, {
+      settings: { bytesPerTile: '2k', layout: 'grid4' },
+    })
+  })
 })
 
 function timeoutFor(name: string): number {

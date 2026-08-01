@@ -21,7 +21,7 @@ Sender side (left) and receiver side (right), end to end:
  display loop (SenderDisplay)                         │ FrameBuffer.feed(bytes)
    │ round-robin over k source + repair esis          │   decodeFrame(): magic/CRC-32C/fields
    │ every 32 ticks: 1 tile = META frame              │   dedup by esi; session latch/reset
-   │ encodeQrBytes() → V27/V33/V40-L matrix           │   META → parseMetadataPayload
+   │ encodeQrBytes() → V27/V34/V40-L matrix           │   META → parseMetadataPayload
    │ renderTiles → RGBA, integer px/module            │ handleFeedResult()
    │ putImageData to device-pixel canvas              │ Reassembler.start/feedMore
    │ adaptFps() throttles down on budget overrun      │   RaptorQ decode (any K distinct symbols)
@@ -113,13 +113,13 @@ four are editable in the sender's settings phase; `DEFAULT_TRANSFER_SETTINGS` is
 | ID     | QR version | Symbol size | MTU    | Frame budget (ECC-L) |
 | ------ | ---------- | ----------- | ------ | -------------------- |
 | `1k`   | 27         | 1024 B      | 1028 B | 1465 B               |
-| `2k`   | 33         | 2048 B      | 2052 B | 2140 B               |
+| `2k`   | 34         | 2048 B      | 2052 B | 2188 B               |
 | `2.5k` | 40         | 2560 B      | 2564 B | 2953 B               |
 
 `mtu = symbolSize + 4` (the RaptorQ symbol is `mtu − 4`, and all three MTUs are ≡ 4 mod 8,
 so the wasm's `symbol_size = mtu − (mtu % 8)` resolves exactly). A wire frame is
 `30 (header) + symbolSize + 4 (CRC)` and must fit the QR version's ECC-L byte capacity (the
-`frameBudget` column: V27-L 1465, V33-L 2140, V40-L 2953). Rows verify:
+`frameBudget` column: V27-L 1465, V34-L 2188, V40-L 2953). Rows verify:
 1058 / 2082 / 2594 ≤ budgets, and the pipeline throws `FRAME_TOO_LARGE` if an encoder ever
 reports a symbol above the budget. `PROFILE_GRID` (2×2, V27, 1024 B) survives as a legacy
 constant, now expressible as `{ 1k, grid4 }`; the old single-V40 profile is gone.
@@ -177,7 +177,7 @@ Verified in the ADR spike (`docs/decisions/raptorq.md`): decode overhead ratio 1
 **ECC-L + fountain over ECC-M.** Per-QR error correction only fixes localized damage inside
 one symbol; whole-symbol loss (blur, motion, occlusion) is the fountain's job, and a
 receiver that misses a QR just needs another symbol. ECC-L maximizes byte capacity per QR
-(V27-L fits 1465 B vs 1058 B frames, a ~1.4× margin; V33-L fits 2140 B vs 2082 B, tight;
+(V27-L fits 1465 B vs 1058 B frames, a ~1.4× margin; V34-L fits 2188 B vs 2082 B, a ~1.05× margin;
 V40-L fits 2953 B vs 2594 B, a ~1.1× margin), so fewer QRs per file at a given fps (the
 tighter 2k/2.5k margins are why those tiles need a steadier view). CRC-32C per frame + RaptorQ
 erasure recovery + the whole-file SHA-256 gate cover what ECC-L does not.

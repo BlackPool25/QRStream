@@ -289,7 +289,7 @@ describe('constants', () => {
   it('pins BYTES_PER_TILE to the spec', () => {
     expect(BYTES_PER_TILE).toEqual({
       '1k': { version: 27, symbolSize: 1024, mtu: 1028, chunkSize: 1004, frameBudget: 1465 },
-      '2k': { version: 33, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2140 },
+      '2k': { version: 34, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2188 },
       '2.5k': { version: 40, symbolSize: 2560, mtu: 2564, chunkSize: 2540, frameBudget: 2953 },
     })
   })
@@ -313,7 +313,7 @@ describe('constants', () => {
 
   const TILE_CAPACITY: Array<readonly [BytesPerTileId, number, number]> = [
     ['1k', 27, 1465],
-    ['2k', 33, 2140],
+    ['2k', 34, 2188],
     ['2.5k', 40, 2953],
   ]
 

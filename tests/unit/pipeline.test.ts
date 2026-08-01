@@ -162,11 +162,11 @@ describe('prepareTransfer', () => {
     )
   })
 
-  it('round-trips a 2 KiB file with 2k (V33) settings', async () => {
+  it('round-trips a 2 KiB file with 2k (V34) settings', async () => {
     const input = randomBytes(2 * 1024, 77)
     const transfer = await makeTransfer({
       file: input,
-      filename: 'v33.bin',
+      filename: 'v34.bin',
       mime: 'application/octet-stream',
       settings: { bytesPerTile: '2k', layout: 'row3', targetFps: 24, highRefresh: false },
     })

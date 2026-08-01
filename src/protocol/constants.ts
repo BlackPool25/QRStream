@@ -70,10 +70,11 @@ export interface BytesPerTileProfile {
 
 // Wire-fit sanity: each mtu = symbolSize + 4 (RaptorQ symbol = mtu − 4); each frame is
 // 30 (header) + symbolSize + 4 (CRC) and must fit the QR version's Ecc.LOW byte capacity
-// (V27-L=1465, V33-L=2140, V40-L=2953). Rows verify: 1058/2082/2594 ≤ budgets.
+// at forced mask 2 (the qrcodegen fast path we render with; slightly under the spec
+// table: V27-L=1465, V34-L=2188, V40-L=2953). Rows verify: 1058/2082/2594 ≤ capacities.
 export const BYTES_PER_TILE: Readonly<Record<BytesPerTileId, BytesPerTileProfile>> = {
   '1k': { version: 27, symbolSize: 1024, mtu: 1028, chunkSize: 1004, frameBudget: 1465 },
-  '2k': { version: 33, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2140 },
+  '2k': { version: 34, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2188 },
   '2.5k': { version: 40, symbolSize: 2560, mtu: 2564, chunkSize: 2540, frameBudget: 2953 },
 }
 

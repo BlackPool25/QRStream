@@ -216,7 +216,7 @@ describe('detectOrientation', () => {
 describe('transferLabel', () => {
   it.each<[TransferSettings, string]>([
     [{ bytesPerTile: '1k', layout: 'grid4', targetFps: 15, highRefresh: false }, 'V27 · 2×2'],
-    [{ bytesPerTile: '2k', layout: 'column3', targetFps: 15, highRefresh: false }, 'V33 · 1×3'],
+    [{ bytesPerTile: '2k', layout: 'column3', targetFps: 15, highRefresh: false }, 'V34 · 1×3'],
     [{ bytesPerTile: '2.5k', layout: 'row3', targetFps: 15, highRefresh: false }, 'V40 · 3×1'],
     [{ bytesPerTile: '1k', layout: 'single', targetFps: 15, highRefresh: false }, 'V27 · 1×1'],
   ])('renders %o as %s', (settings, expected) => {
