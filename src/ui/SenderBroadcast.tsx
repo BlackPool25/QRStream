@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import { SenderDisplay } from '../sender/display'
 import type { SenderStats } from '../sender/pacing'
 import type { PreparedTransfer } from '../sender/pipeline'
-import { formatBytes, formatEta, profileLabel } from './format'
+import { formatBytes, formatEta } from './format'
 import { IconFullscreen, IconMinimize, IconStop, IconSun } from './icons'
 
 interface SenderBroadcastProps {
@@ -111,7 +111,10 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
                 {prepared.info.filename}
               </span>
               <span className="chip chip-muted">{formatBytes(prepared.info.totalSize)}</span>
-              <span className="chip chip-accent">{profileLabel(s.profile)}</span>
+              {/* TEMP: inline label until transferLabel(settings) lands (T10) */}
+              <span className="chip chip-accent">
+                {s.profile === 'grid' ? 'GRID 2×2' : 'SINGLE V40'}
+              </span>
               <span className="chip chip-muted">k {s.k}</span>
               <span className="chip chip-muted">{s.fps.toFixed(1)} fps</span>
               <span className="chip chip-warn">{s.droppedTicks} dropped</span>

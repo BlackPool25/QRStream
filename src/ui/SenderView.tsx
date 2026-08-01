@@ -1,7 +1,7 @@
 import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 import { PipelineError, prepareTransfer, type PreparedTransfer } from '../sender/pipeline'
-import { formatBytes, profileLabel } from './format'
+import { formatBytes } from './format'
 import { IconBack } from './icons'
 import { SenderBroadcast } from './SenderBroadcast'
 
@@ -139,7 +139,8 @@ export function SenderView({ onExit }: SenderViewProps) {
             </div>
             <div>
               <dt>Profile</dt>
-              <dd>{profileLabel(prepared.value.info.profile)}</dd>
+              {/* TEMP: inline label until transferLabel(settings) lands (T4/T10) */}
+              <dd>{prepared.value.info.profile === 'grid' ? 'GRID 2×2' : 'SINGLE V40'}</dd>
             </div>
             <div>
               <dt>Symbols</dt>

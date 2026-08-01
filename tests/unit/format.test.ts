@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatEta, profileLabel } from '../../src/ui/format'
+import { formatBytes, formatEta } from '../../src/ui/format'
 
 describe('formatBytes', () => {
   it('renders raw bytes below 1 KiB with the B unit', () => {
@@ -42,15 +42,5 @@ describe('formatEta', () => {
   it('clamps negative or fractional inputs to whole seconds', () => {
     expect(formatEta(-5)).toBe('0s')
     expect(formatEta(12.9)).toBe('13s')
-  })
-})
-
-describe('profileLabel', () => {
-  it('maps the grid profile to its human label', () => {
-    expect(profileLabel('grid')).toBe('GRID 2×2')
-  })
-
-  it('maps the v40 profile to its human label', () => {
-    expect(profileLabel('v40')).toBe('SINGLE V40')
   })
 })

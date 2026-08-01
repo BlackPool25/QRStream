@@ -1,5 +1,3 @@
-import type { ProfileId } from '../sender/pipeline'
-
 const BYTE_UNITS = ['KB', 'MB', 'GB', 'TB'] as const
 
 /**
@@ -38,14 +36,4 @@ export function formatEta(seconds: number): string {
   const hours = Math.floor(minutes / 60)
   const restMinutes = minutes % 60
   return restMinutes === 0 ? `${hours}h` : `${hours}h ${restMinutes}m`
-}
-
-const PROFILE_LABELS: Readonly<Record<ProfileId, string>> = {
-  grid: 'GRID 2×2',
-  v40: 'SINGLE V40',
-}
-
-/** Human label for a transfer profile id. */
-export function profileLabel(profile: ProfileId): string {
-  return PROFILE_LABELS[profile]
 }
