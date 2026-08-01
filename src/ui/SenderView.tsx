@@ -1,5 +1,5 @@
 import { useSignal } from '@preact/signals'
-import { useRef } from 'preact/hooks'
+import { useEffect, useRef } from 'preact/hooks'
 import { PipelineError, prepareTransfer, type PreparedTransfer } from '../sender/pipeline'
 import { formatBytes, profileLabel } from './format'
 import { IconBack } from './icons'
@@ -24,10 +24,23 @@ export function SenderView({ onExit }: SenderViewProps) {
   const dragging = useSignal(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // A PreparedTransfer owns a live RaptorQ wasm encoder. Dispose it when the
+  // view unmounts so transfers abandoned before broadcast (Back / different
+  // file) free their encoder; SenderBroadcast.dispose() covers the broadcast
+  // path, and encoder.dispose() is idempotent, so the two never double-free.
+  useEffect(() => {
+    return () => {
+      prepared.value?.encoder.dispose()
+    }
+  }, [])
+
   async function handleFile(file: File): Promise<void> {
     error.value = undefined
     fileMeta.value = { name: file.name, size: file.size }
     phase.value = 'preparing'
+    // Drop the previous transfer's encoder up front (also covers the case
+    // where prepareTransfer below throws and the stale prepared is cleared).
+    prepared.value?.encoder.dispose()
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
       const result = await prepareTransfer({

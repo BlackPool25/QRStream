@@ -25,11 +25,18 @@ async function withNavigatorMock<T>(mock: Navigator, run: () => Promise<T> | T):
 }
 
 describe('buildConstraints', () => {
-  it('requests 60 fps as an exact constraint and the rear camera', () => {
+  it('requests 60 fps as an ideal constraint and the rear camera', () => {
     const constraints = buildConstraints()
 
-    expect(constraints.frameRate).toEqual({ exact: 60 })
+    expect(constraints.frameRate).toEqual({ ideal: 60 })
     expect(constraints.facingMode).toBe('environment')
+  })
+
+  it('does not put camera-control constraints at the top level', () => {
+    const constraints = buildConstraints()
+
+    expect(constraints.focusMode).toBeUndefined()
+    expect(constraints.exposureMode).toBeUndefined()
   })
 
   it('prefers a 1280x720 image', () => {
@@ -40,16 +47,16 @@ describe('buildConstraints', () => {
   })
 
   it('honors a custom preferred fps', () => {
-    expect(buildConstraints(30).frameRate).toEqual({ exact: 30 })
+    expect(buildConstraints(30).frameRate).toEqual({ ideal: 30 })
   })
 
-  it('falls back to an ideal fps when the frameRate constraint is unsupported', async () => {
+  it('omits the frameRate constraint when the constraint is unsupported', async () => {
     const mockNavigator = {
       mediaDevices: { getSupportedConstraints: () => ({ frameRate: false }) },
     } as unknown as Navigator
 
     await withNavigatorMock(mockNavigator, () => {
-      expect(buildConstraints().frameRate).toEqual({ ideal: 60 })
+      expect(buildConstraints().frameRate).toBeUndefined()
     })
   })
 })

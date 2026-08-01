@@ -200,6 +200,10 @@ export class ReceiverOrchestrator {
       return this.reassembler
     }
     if (this.reassemblerSessionId !== metadata.sessionId || this.reassemblerMtu !== metadata.mtu) {
+      // A new session (or a profile change) means the old reassembler is
+      // abandoned mid-flight — reset it so its one-shot wasm decoder handle
+      // is disposed instead of leaked. The fresh instance starts empty.
+      this.reassembler.reset()
       this.reassembler = new Reassembler({ mtu: metadata.mtu })
       this.reassemblerSessionId = metadata.sessionId
       this.reassemblerMtu = metadata.mtu

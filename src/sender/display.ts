@@ -45,8 +45,6 @@ export interface SenderDisplayOptions {
   readonly onStats?: (stats: SenderStats) => void
 }
 
-export { requestWakeLock, releaseWakeLock }
-
 export class SenderDisplay {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D

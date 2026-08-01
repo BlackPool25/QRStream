@@ -20,5 +20,3 @@ export const wasmAssets = {
   /** RaptorQ fountain-codec wasm (~235 KiB). */
   raptorq: raptorqWasmUrl,
 } as const
-
-export type WasmAssetKey = keyof typeof wasmAssets

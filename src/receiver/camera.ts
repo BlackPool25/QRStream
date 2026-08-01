@@ -37,7 +37,7 @@ export interface CameraConstraints extends MediaTrackConstraints {
 /**
  * Whether the browser advertises support for the `frameRate` media constraint.
  * Falls back to "supported" when the environment cannot be probed (e.g. a Node
- * test runner), so the default constraints still request exact fps.
+ * test runner), so the default constraints still request the preferred fps.
  */
 export function frameRateConstraintSupported(): boolean {
   if (typeof navigator === 'undefined') {
@@ -50,22 +50,29 @@ export function frameRateConstraintSupported(): boolean {
 /**
  * Builds the video track constraints for a rear-camera QR scanner.
  *
- * fps is requested as `exact` because iOS lies about its actual frame rate;
- * callers must read back the real value via {@link readSettings} and use that
- * for pacing decisions. When the browser does not support the `frameRate`
- * constraint at all, an `ideal` value is used instead.
+ * fps is requested as `ideal`, never `exact`: an exact constraint hard-fails
+ * the whole getUserMedia call with OverconstrainedError on any camera that
+ * cannot deliver the target rate (30 fps-only webcams, many phones), which
+ * would make the receiver unusable. The actual delivered rate is read back
+ * via {@link readSettings} and used for pacing decisions.
+ *
+ * `focusMode`/`exposureMode` are deliberately NOT top-level constraints:
+ * they are non-standard camera-control constraints, and an unsupported
+ * top-level required constraint also rejects with OverconstrainedError. They
+ * are applied best-effort afterwards via `advanced` in
+ * {@link tryLockFocusExposure}, where failure is swallowed. When the browser
+ * does not support the `frameRate` constraint at all, it is omitted.
  */
 export function buildConstraints(preferredFps = 60): CameraConstraints {
-  const frameRate = frameRateConstraintSupported()
-    ? { exact: preferredFps }
-    : { ideal: preferredFps }
-  return {
+  const constraints: CameraConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
-    frameRate,
     facingMode: 'environment',
-    focusMode: 'continuous',
   }
+  if (frameRateConstraintSupported()) {
+    constraints.frameRate = { ideal: preferredFps }
+  }
+  return constraints
 }
 
 /**
