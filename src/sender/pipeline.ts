@@ -20,20 +20,18 @@ import { compress } from '../codec/compression/deflate'
 import { createRaptorqFountain } from '../codec/fountain/raptorq'
 import type { EncodedSymbol, FountainEncoder } from '../codec/fountain/interface'
 import {
+  BYTES_PER_TILE,
   FLAG_COMPRESSED,
   MAX_TOTAL_LEN,
   META_MAGIC,
-  PROFILE_GRID,
-  PROFILE_V40,
   PROTO_VERSION,
   TYPE_DATA,
-  type Profile,
+  type TransferSettings,
 } from '../protocol/constants'
 import { buildMetadataFrame } from '../protocol/metadata'
 import { sha256Hex } from '../protocol/sha256'
 import { encodeFrame, generateSessionId, type Frame } from '../protocol/wire'
-
-export type ProfileId = 'grid' | 'v40'
+import { DEFAULT_TRANSFER_SETTINGS, validateSettings } from './settings'
 
 export interface TransferInfo {
   readonly sessionId: string
@@ -46,7 +44,7 @@ export interface TransferInfo {
   readonly symbolSize: number
   readonly mtu: number
   readonly fileSHA256: string
-  readonly profile: ProfileId
+  readonly settings: TransferSettings
   readonly totalFrames: number
   readonly dataFrameCount: number
   readonly metaFrameCount: number
@@ -76,35 +74,11 @@ export class PipelineError extends Error {
   }
 }
 
-const PROFILES: Readonly<Record<ProfileId, Profile>> = {
-  grid: PROFILE_GRID,
-  v40: PROFILE_V40,
-}
-
-function buildDataFrame(
-  sessionId: string,
-  k: number,
-  totalLen: number,
-  flags: number,
-  symbol: EncodedSymbol,
-): Uint8Array {
-  const frame: Frame = {
-    type: TYPE_DATA,
-    sessionId,
-    esi: symbol.esi,
-    k,
-    totalLen,
-    flags,
-    payload: symbol.bytes,
-  }
-  return encodeFrame(frame)
-}
-
 export async function prepareTransfer(input: {
   file: Uint8Array
   filename: string
   mime: string
-  profile?: ProfileId
+  settings?: TransferSettings
 }): Promise<PreparedTransfer> {
   if (input.file.length === 0) {
     throw new PipelineError('EMPTY_FILE', 'cannot transfer an empty file')
@@ -114,8 +88,9 @@ export async function prepareTransfer(input: {
   // the codec both require Uint8Array<ArrayBuffer>.
   const file = new Uint8Array(input.file)
 
-  const profileId = input.profile ?? 'grid'
-  const profile = PROFILES[profileId]
+  const settings = input.settings ?? DEFAULT_TRANSFER_SETTINGS
+  validateSettings(settings)
+  const profile = BYTES_PER_TILE[settings.bytesPerTile]
 
   const totalSize = file.length
   const fileSHA256 = await sha256Hex(file)
@@ -185,13 +160,32 @@ export async function prepareTransfer(input: {
     symbolSize: encoder.symbolSize,
     mtu: profile.mtu,
     fileSHA256,
-    profile: profileId,
+    settings,
     totalFrames: dataFrames.length + 1,
     dataFrameCount: dataFrames.length,
     metaFrameCount: 1,
   }
 
   return { info, dataFrames, metaFrames: [metaFrame], encoder }
+}
+
+function buildDataFrame(
+  sessionId: string,
+  k: number,
+  totalLen: number,
+  flags: number,
+  symbol: EncodedSymbol,
+): Uint8Array {
+  const frame: Frame = {
+    type: TYPE_DATA,
+    sessionId,
+    esi: symbol.esi,
+    k,
+    totalLen,
+    flags,
+    payload: symbol.bytes,
+  }
+  return encodeFrame(frame)
 }
 
 /** Build `repairCount` additional DATA frames from the encoder's repair symbols. */

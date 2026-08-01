@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { compress, decompress } from '../../src/codec/compression/deflate'
 import { createRaptorqFountain } from '../../src/codec/fountain/raptorq'
 import {
+  BYTES_PER_TILE,
   FLAG_COMPRESSED,
   META_MAGIC,
-  PROFILE_GRID,
-  PROFILE_V40,
   PROTO_VERSION,
   TYPE_DATA,
+  type TransferSettings,
 } from '../../src/protocol/constants'
 import { parseMetadataFrame } from '../../src/protocol/metadata'
 import { sha256Hex } from '../../src/protocol/sha256'
@@ -98,18 +98,24 @@ async function rejectionCode(run: () => Promise<unknown>): Promise<string> {
 }
 
 describe('prepareTransfer', () => {
-  it('round-trips a 64 KiB random binary via the grid profile', async () => {
+  it('round-trips a 64 KiB random binary via default settings (1k)', async () => {
     const input = randomBytes(64 * 1024, 0x51a1e)
     const transfer = await makeTransfer({ file: input, ...INPUT })
     const info = transfer.info
     const expected = compress(input)
 
-    expect(info.profile).toBe('grid')
+    expect(info.settings).toEqual({
+      bytesPerTile: '1k',
+      layout: 'grid4',
+      targetFps: 15,
+      highRefresh: false,
+    })
+    expect(info.settings.bytesPerTile).toBe('1k')
     expect(info.totalSize).toBe(64 * 1024)
     expect(info.filename).toBe(INPUT.filename)
     expect(info.mime).toBe(INPUT.mime)
-    expect(info.symbolSize).toBe(PROFILE_GRID.mtu)
-    expect(info.mtu).toBe(PROFILE_GRID.mtu)
+    expect(info.symbolSize).toBe(BYTES_PER_TILE['1k'].mtu)
+    expect(info.mtu).toBe(BYTES_PER_TILE['1k'].mtu)
     // Random data is high-entropy: deflate usually declines to shrink it, but
     // we assert against the actual compress() result, never a hardcoded value.
     expect(info.compressed).toBe(expected.compressed)
@@ -156,23 +162,60 @@ describe('prepareTransfer', () => {
     )
   })
 
-  it('round-trips a 2 KiB file via the v40 profile', async () => {
+  it('round-trips a 2 KiB file with 2k (V33) settings', async () => {
+    const input = randomBytes(2 * 1024, 77)
+    const transfer = await makeTransfer({
+      file: input,
+      filename: 'v33.bin',
+      mime: 'application/octet-stream',
+      settings: { bytesPerTile: '2k', layout: 'row3', targetFps: 24, highRefresh: false },
+    })
+
+    expect(transfer.info.settings).toEqual({
+      bytesPerTile: '2k',
+      layout: 'row3',
+      targetFps: 24,
+      highRefresh: false,
+    })
+    expect(transfer.info.mtu).toBe(BYTES_PER_TILE['2k'].mtu)
+    expect(transfer.info.symbolSize).toBe(transfer.info.mtu)
+    expect(transfer.info.k).toBeGreaterThan(0)
+    expect(transfer.info.k * transfer.info.mtu).toBeGreaterThanOrEqual(transfer.info.compressedSize)
+    expect(restoreOriginal(transfer, await decodePayload(transfer))).toEqual(input)
+  })
+
+  it('round-trips a 2 KiB file with 2.5k (V40) settings', async () => {
     const input = randomBytes(2 * 1024, 99)
     const transfer = await makeTransfer({
       file: input,
       filename: 'v40.bin',
       mime: 'application/octet-stream',
-      profile: 'v40',
+      settings: { bytesPerTile: '2.5k', layout: 'single', targetFps: 15, highRefresh: false },
     })
 
-    expect(transfer.info.profile).toBe('v40')
-    expect(transfer.info.symbolSize).toBe(PROFILE_V40.mtu)
-    expect(transfer.info.mtu).toBe(PROFILE_V40.mtu)
+    expect(transfer.info.settings).toEqual({
+      bytesPerTile: '2.5k',
+      layout: 'single',
+      targetFps: 15,
+      highRefresh: false,
+    })
+    expect(transfer.info.mtu).toBe(BYTES_PER_TILE['2.5k'].mtu)
+    expect(transfer.info.symbolSize).toBe(transfer.info.mtu)
     expect(transfer.info.k).toBeGreaterThan(0)
-    expect(transfer.info.k * transfer.info.symbolSize).toBeGreaterThanOrEqual(
-      transfer.info.compressedSize,
-    )
+    expect(transfer.info.k * transfer.info.mtu).toBeGreaterThanOrEqual(transfer.info.compressedSize)
     expect(restoreOriginal(transfer, await decodePayload(transfer))).toEqual(input)
+  })
+
+  it('rejects settings with an unknown bytesPerTile', async () => {
+    const settings = {
+      bytesPerTile: '9k',
+      layout: 'grid4',
+      targetFps: 15,
+      highRefresh: false,
+    } as unknown as TransferSettings
+    await expect(makeTransfer({ file: randomBytes(1024, 1), ...INPUT, settings })).rejects.toThrow(
+      TypeError,
+    )
   })
 })
 
