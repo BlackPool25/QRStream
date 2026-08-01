@@ -1,8 +1,9 @@
 import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 import { SenderDisplay } from '../sender/display'
-import type { SenderStats } from '../sender/pacing'
+import { estimateThroughput, type SenderStats } from '../sender/pacing'
 import type { PreparedTransfer } from '../sender/pipeline'
+import { transferLabel } from '../sender/settings'
 import { formatBytes, formatEta } from './format'
 import { IconFullscreen, IconMinimize, IconStop, IconSun } from './icons'
 
@@ -108,10 +109,12 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
                 {prepared.info.filename}
               </span>
               <span className="chip chip-muted">{formatBytes(prepared.info.totalSize)}</span>
-              {/* TEMP: inline label until transferLabel(settings) lands (T10) */}
-              <span className="chip chip-accent">
-                {s.layout === 'grid4' ? 'GRID 2×2' : 'SINGLE V40'}
-              </span>
+              <span className="chip chip-accent">{transferLabel(prepared.info.settings)}</span>
+              {s.fps > 0 && (
+                <span className="chip chip-muted" title="Estimated broadcast rate">
+                  {formatBytes(estimateThroughput(prepared.info.settings))}/s
+                </span>
+              )}
               <span className="chip chip-muted">k {s.k}</span>
               <span className="chip chip-muted">{s.fps.toFixed(1)} fps</span>
               <span className="chip chip-warn">{s.droppedTicks} dropped</span>
