@@ -43,6 +43,10 @@ dependencies:
   flutter_rust_bridge: 2.12.0
   # Camera capture (Android); Linux is send-only, so the plugin is Android-only at runtime.
   camera: ^0.12.0
+  # Force the Camera2 (camera_android) implementation: camera_android_camerax's
+  # startImageStream has known stream-stopping/OOM bugs; Camera2 is the
+  # battle-tested image-streaming path.
+  camera_android: ^0.10.10
   # Open saved files with the default viewer.
   url_launcher: ^6.3.2
   # Explicit CAMERA permission request before the camera plugin starts (the

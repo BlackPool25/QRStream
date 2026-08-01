@@ -427,7 +427,12 @@ class _ReceiveViewState extends State<ReceiveView> {
     final r = _result;
     return Stack(
       children: [
-        const Positioned.fill(child: ColoredBox(color: Color(0xFF101316))),
+        // Live camera preview when available; the espresso backdrop otherwise
+        // (fake services, still-initializing controller).
+        Positioned.fill(
+          child: _camera.buildPreview() ??
+              const ColoredBox(color: Color(0xFF101316)),
+        ),
         if (_error != null)
           Positioned(top: 8, left: 8, right: 8, child: _banner(c, _error!)),
         if (r != null)

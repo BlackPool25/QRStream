@@ -12,6 +12,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// One RGB camera frame: `width * height * 3` bytes, row-major.
@@ -26,6 +27,10 @@ abstract class CameraService {
 
   /// Stops frame delivery. Safe to call when not started.
   Future<void> stop();
+
+  /// Optional live camera preview widget to show while scanning; null when
+  /// the service has no previewable controller (fakes, Linux).
+  Widget? buildPreview() => null;
 }
 
 /// Real camera: wraps the `camera` plugin's [CameraController] and converts
@@ -81,6 +86,14 @@ class PluginCameraService implements CameraService {
     }
     await controller.startImageStream(_onImage);
     _started = true;
+  }
+
+  /// The live camera preview once [start] has initialized the controller.
+  @override
+  Widget? buildPreview() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return null;
+    return CameraPreview(controller);
   }
 
   void _onImage(CameraImage image) {

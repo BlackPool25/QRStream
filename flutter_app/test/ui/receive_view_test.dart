@@ -59,9 +59,13 @@ List<Uint8List> _splitLengthPrefixed(Uint8List bytes) {
 /// Camera fake: yields every [QrMatrix] as a rasterized RGB frame on start,
 /// exactly like the PWA's virtual camera feeding the orchestrator.
 class FakeCameraService implements CameraService {
-  FakeCameraService(this.frames);
+  FakeCameraService(this.frames, {this.preview});
 
   final List<QrMatrix> frames;
+
+  /// Optional fake preview widget (exercises the preview path in the view).
+  final Widget? preview;
+
   bool started = false;
   bool stopped = false;
 
@@ -78,6 +82,9 @@ class FakeCameraService implements CameraService {
   Future<void> stop() async {
     stopped = true;
   }
+
+  @override
+  Widget? buildPreview() => preview;
 }
 
 /// Rasterizes a QR module matrix into tight RGB at [ppm] pixels per module
@@ -298,6 +305,28 @@ void main() {
     expect(fake.openCount, 1);
     expect(find.textContaining('Could not open the file'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a live camera preview renders while scanning', (tester) async {
+    final camera = FakeCameraService(
+      const <QrMatrix>[],
+      preview: const ColoredBox(key: Key('fake_preview'), color: Colors.green),
+    );
+    final fake = FakeSaver();
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        pool: pool,
+      ),
+    );
+
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+
+    expect(camera.started, isTrue);
+    expect(find.byKey(const Key('fake_preview')), findsOneWidget,
+        reason: 'the camera preview fills the scanning stage');
   });
 
   testWidgets('linuxOnly shows the phone card, no camera, no Start button', (
