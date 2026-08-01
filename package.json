@@ -13,7 +13,9 @@
     "soak": "vitest run tests/soak",
     "soak:full": "SOAK_FULL=1 vitest run tests/soak",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "perf": "vitest run tests/unit/perf.test.ts --disable-console-intercept",
+    "perf:e2e": "npx playwright test tests/e2e/perf.spec.ts"
   },
   "dependencies": {
     "@preact/signals": "^2.10.1",

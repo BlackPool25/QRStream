@@ -20,4 +20,7 @@ jobs:
       - run: npm run tsc
       - run: npm run vitest run
       - run: npm run soak
+      # Perf budgets are machine-tolerant; run after the soak so numbers are
+      # steady-state. The e2e perf spec is excluded: it needs a browser + build.
+      - run: npm run perf
       - run: npm run build
