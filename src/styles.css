@@ -766,6 +766,20 @@ button {
   font-weight: 400;
 }
 
+/* Settings phase wrapper: keeps the confirm line aligned under the panel. */
+.settings-summary {
+  margin: auto;
+  width: min(100%, 28rem);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-summary .card {
+  margin: 0;
+  width: 100%;
+}
+
 /* ============================================================
    Receiver
    ============================================================ */
