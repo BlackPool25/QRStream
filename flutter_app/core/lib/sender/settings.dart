@@ -95,10 +95,13 @@ Future<int> detectRefreshRateCore({
   return completer.future;
 }
 
-/// Human-readable transfer label, e.g. "V27 · 2×2". The maps in constants.dart
-/// are total over their enum keys, so the lookups cannot fail.
+/// Human-readable transfer label, e.g. "V27 · 2×2". Dimensions read as
+/// "rows × columns" (standard grid notation): the vertical column layout
+/// (1 column of 3 tiles) shows as "3×1", the horizontal row as "1×3". The
+/// maps in constants.dart are total over their enum keys, so the lookups
+/// cannot fail.
 String transferLabel(TransferSettings s) {
   final profile = bytesPerTile[s.bytesPerTile]!;
   final tile = layouts[s.layout]!;
-  return 'V${profile.version} · ${tile.cols}×${tile.rows}';
+  return 'V${profile.version} · ${tile.rows}×${tile.cols}';
 }

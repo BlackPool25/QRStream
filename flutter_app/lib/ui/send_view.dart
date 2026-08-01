@@ -13,6 +13,7 @@ import 'package:qr_transfer_core/sender/settings.dart';
 
 import 'broadcast_view.dart';
 import 'settings_panel.dart';
+import '../settings/settings_store.dart';
 
 /// Result of picking a file.
 typedef PickedFile = ({String name, String mime, Uint8List bytes});
@@ -38,6 +39,7 @@ class SendView extends StatefulWidget {
     this.filePicker,
     this.factory,
     this.refreshRateProbe,
+    this.settingsStore,
   });
 
   /// Overridable in tests; defaults to a real file selector.
@@ -50,11 +52,15 @@ class SendView extends StatefulWidget {
   /// Returns the detected refresh rate (60/90/120).
   final Future<int> Function()? refreshRateProbe;
 
+  /// Overridable in tests; defaults to the real [SettingsStore]. Its
+  /// persisted defaults pre-fill the settings when a file is first picked.
+  final SettingsStore? settingsStore;
+
   @override
   State<SendView> createState() => _SendViewState();
 }
 
-enum _SendPhase { idle, preparing, settings, broadcasting }
+enum _SendPhase { idle, preparing, settings }
 
 class _SendViewState extends State<SendView> {
   _SendPhase _phase = _SendPhase.idle;
@@ -65,12 +71,16 @@ class _SendViewState extends State<SendView> {
   int _prepareSeq = 0; // guards against a stale async prepare landing late
   PickedFile? _lastPicked;
   String? _error;
+  Future<qrc.TransferSettings>? _defaultsFuture;
 
   FountainFactory get _factory => widget.factory ?? RustRaptorqFactory();
 
   @override
   void initState() {
     super.initState();
+    // Load the persisted defaults up front so the settings step is pre-filled
+    // even when the user picks a file immediately.
+    _defaultsFuture = (widget.settingsStore ?? SettingsStore()).load();
     // Refresh rate is measured lazily on entering the settings phase, not on
     // mount (avoids a frame-probe running behind the idle/other screens).
   }
@@ -94,13 +104,20 @@ class _SendViewState extends State<SendView> {
   }
 
   Future<void> _pickAndPrepare() async {
+    // Pre-fill from the persisted defaults before picking so the file is
+    // prepared with the user's saved settings even if they pick immediately.
+    final defaultsFuture =
+        _defaultsFuture ?? Future.value(defaultTransferSettings);
+    final defaults = await defaultsFuture;
+    if (!mounted) return;
+    _settings = defaults;
     final picked = await (widget.filePicker ?? _realFilePicker)();
     if (picked == null || !mounted) return;
     setState(() {
       _lastPicked = picked;
       _phase = _SendPhase.preparing;
     });
-    await _prepare(picked, defaultTransferSettings);
+    await _prepare(picked, _settings);
   }
 
   Future<void> _prepare(PickedFile picked, qrc.TransferSettings settings) async {
@@ -181,22 +198,29 @@ class _SendViewState extends State<SendView> {
                 compressedSize: _prepared!.info.compressedSize,
                 refreshRate: _refreshRate,
                 suggestedLayout: _suggested ?? qrc.LayoutId.grid4,
-                onBegin: () => setState(() => _phase = _SendPhase.broadcasting),
+                onBegin: _beginBroadcast,
                 onDifferentFile: _clearCache,
                 fileName: _prepared!.info.filename,
                 fileSize: _prepared!.info.totalSize,
               );
-      case _SendPhase.broadcasting:
-        final prepared = _prepared;
-        if (prepared == null) return _buildIdle(context);
-        return BroadcastView(
+    }
+  }
+
+  /// Pushes the broadcast as a full-screen route so the shell chrome
+  /// (NavigationBar) is hidden and Android back pops back to this settings
+  /// step with the prepared-transfer cache intact (D9).
+  void _beginBroadcast() {
+    final prepared = _prepared;
+    if (prepared == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => BroadcastView(
           prepared: prepared,
           settings: _settings,
-          // Stopping a broadcast returns to the settings step with the
-          // cached transfer still prepared — no re-chunking.
-          onStop: () => setState(() => _phase = _SendPhase.settings),
-        );
-    }
+          onStop: () => Navigator.of(routeContext).pop(),
+        ),
+      ),
+    );
   }
 
   Widget _buildIdle(BuildContext context) {

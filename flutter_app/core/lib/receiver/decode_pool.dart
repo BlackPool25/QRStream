@@ -233,6 +233,36 @@ List<DecodeResult> _decodeRgb(
     try {
       return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
     } on ReaderException {
+      return _decodeInverted(reader, hints, pureHints, width, height, pixels);
+    }
+  }
+}
+
+/// The broadcast stage can be white-modules-on-dark (the Flutter espresso
+/// theme) or dark-on-light (the PWA) — zxing assumes dark-on-light, so when
+/// both normal attempts fail, retry on the inverted image. Cheap: the decode
+/// pool has ample headroom, and this only runs when nothing decoded.
+List<DecodeResult> _decodeInverted(
+  QRCodeReader reader,
+  DecodeHints hints,
+  DecodeHints pureHints,
+  int width,
+  int height,
+  Int32List pixels,
+) {
+  final inverted = Int32List(pixels.length);
+  for (var i = 0; i < pixels.length; i++) {
+    inverted[i] = 0xff000000 | (0xFFFFFF - (pixels[i] & 0xFFFFFF));
+  }
+  final bitmap = BinaryBitmap(
+    GlobalHistogramBinarizer(RGBLuminanceSource(width, height, inverted)),
+  );
+  try {
+    return [_resultFrom(reader.decode(bitmap, hints: hints))];
+  } on ReaderException {
+    try {
+      return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
+    } on ReaderException {
       return const [];
     }
   }

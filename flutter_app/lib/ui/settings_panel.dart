@@ -3,37 +3,223 @@ import 'package:qr_transfer_core/protocol/constants.dart' as qrc;
 import 'package:qr_transfer_core/sender/pacing.dart' as qrp;
 import 'package:qr_transfer_core/sender/settings.dart';
 
+import '../settings/settings_store.dart';
+
 /// Nav-destination screen for app-level settings (the shell's third tab).
-/// Holds the default transfer settings + refresh-rate info; transfer-specific
-/// settings (fps/bytes/layout per-file) live in the send flow's SettingsPanel.
-class SettingsView extends StatelessWidget {
-  const SettingsView({super.key});
+/// Edits the DEFAULT transfer settings, persisting each change immediately;
+/// the values pre-fill the send flow. Transfer-specific settings
+/// (fps/bytes/layout per-file) live in the send flow's SettingsPanel.
+class SettingsView extends StatefulWidget {
+  const SettingsView({super.key, this.store});
+
+  /// Injectable for tests; defaults to the real [SettingsStore].
+  final SettingsStore? store;
+
+  @override
+  State<SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends State<SettingsView> {
+  late final SettingsStore _store = widget.store ?? SettingsStore();
+  bool _loaded = false;
+  qrc.TransferSettings _settings = defaultTransferSettings;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final settings = await _store.load();
+    if (!mounted) return;
+    setState(() {
+      _settings = settings;
+      _loaded = true;
+    });
+  }
+
+  void _update(qrc.TransferSettings next) {
+    setState(() => _settings = next);
+    _store.save(next);
+  }
+
+  void _restoreDefaults() => _update(defaultTransferSettings);
 
   @override
   Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final theme = Theme.of(context);
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.settings, size: 64, color: theme.colorScheme.primary),
-            const SizedBox(height: 12),
-            Text('Settings', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            Text(
-              'Default transfer settings: ${transferLabel(defaultTransferSettings)}. '
-              'Per-file settings (fps, bytes per tile, layout, high refresh) '
-              'are chosen in the send flow before broadcasting.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Default transfer settings',
+                style: theme.textTheme.headlineSmall,
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Used to pre-fill each send. Change per-file in the send flow.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 20),
+              _sectionLabel(context, 'Display fps'),
+              _fpsSelector(context),
+              const SizedBox(height: 16),
+              _sectionLabel(context, 'Bytes per tile'),
+              _bytesSelector(context),
+              const SizedBox(height: 16),
+              _sectionLabel(context, 'Tile layout'),
+              _layoutSelector(context),
+              const SizedBox(height: 16),
+              _refreshRow(context),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  key: const Key('restore_defaults'),
+                  onPressed: _restoreDefaults,
+                  child: const Text('Restore defaults'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _sectionLabel(BuildContext context, String label) {
+    return Text(
+      label.toUpperCase(),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            letterSpacing: 1.2,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+    );
+  }
+
+  Widget _fpsSelector(BuildContext context) {
+    return SegmentedButton<int>(
+      key: const Key('fps_group'),
+      segments: [
+        for (final fps in SettingsPanel._fpsOptions)
+          ButtonSegment<int>(
+            value: fps,
+            label: Text('$fps'),
+            enabled: fps != 30 || _settings.highRefresh,
+            icon: fps == 30 && !_settings.highRefresh
+                ? const Tooltip(
+                    message: 'Needs a 90 Hz+ display',
+                    child: Icon(Icons.lock_outline, size: 14),
+                  )
+                : null,
+          ),
+      ],
+      selected: {_settings.targetFps},
+      onSelectionChanged: (sel) => _update(
+        qrc.TransferSettings(
+          bytesPerTile: _settings.bytesPerTile,
+          layout: _settings.layout,
+          targetFps: sel.first,
+          highRefresh: _settings.highRefresh,
+        ),
+      ),
+    );
+  }
+
+  Widget _bytesSelector(BuildContext context) {
+    return SegmentedButton<qrc.BytesPerTileId>(
+      key: const Key('bytes_group'),
+      segments: [
+        for (final id in SettingsPanel._tileOrder)
+          ButtonSegment<qrc.BytesPerTileId>(
+            value: id,
+            label: Text(id == qrc.BytesPerTileId.oneK
+                ? '1 KB'
+                : id == qrc.BytesPerTileId.twoK
+                    ? '2 KB'
+                    : '2.5 KB'),
+          ),
+      ],
+      selected: {_settings.bytesPerTile},
+      onSelectionChanged: (sel) => _update(
+        qrc.TransferSettings(
+          bytesPerTile: sel.first,
+          layout: _settings.layout,
+          targetFps: _settings.targetFps,
+          highRefresh: _settings.highRefresh,
+        ),
+      ),
+    );
+  }
+
+  Widget _layoutSelector(BuildContext context) {
+    return Wrap(
+      key: const Key('layout_group'),
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final layout in SettingsPanel._layoutOrder)
+          ChoiceChip(
+            key: Key('layout_${layout.name}'),
+            label: Text(SettingsPanel._layoutLabel(layout)),
+            avatar: SettingsPanel._layoutGlyph(layout),
+            selected: _settings.layout == layout,
+            showCheckmark: false,
+            onSelected: (_) => _update(
+              qrc.TransferSettings(
+                bytesPerTile: _settings.bytesPerTile,
+                layout: layout,
+                targetFps: _settings.targetFps,
+                highRefresh: _settings.highRefresh,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _refreshRow(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('HIGH REFRESH RATE',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    letterSpacing: 1.2,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  )),
+              Text('Detected on the sending device',
+                  style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+        Switch(
+          key: const Key('high_refresh_switch'),
+          value: _settings.highRefresh,
+          onChanged: (v) => _update(
+            qrc.TransferSettings(
+              bytesPerTile: _settings.bytesPerTile,
+              layout: _settings.layout,
+              targetFps: _settings.targetFps,
+              highRefresh: v,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -335,13 +521,16 @@ class SettingsPanel extends StatelessWidget {
   }
 
   static String _layoutLabel(qrc.LayoutId layout) {
+    // Labels read as "rows × columns" (standard grid notation): the 1×3
+    // column of tiles is "3×1" (3 rows, 1 column) and the 3-across row is
+    // "1×3" (1 row, 3 columns).
     switch (layout) {
       case qrc.LayoutId.single:
         return '1×1';
       case qrc.LayoutId.column3:
-        return '1×3';
-      case qrc.LayoutId.row3:
         return '3×1';
+      case qrc.LayoutId.row3:
+        return '1×3';
       case qrc.LayoutId.grid4:
         return '2×2';
       case qrc.LayoutId.grid9:

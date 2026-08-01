@@ -82,8 +82,8 @@ qr-data-transfer/
 | W2 | RaptorQ FFI: api.rs + **PWA-packet interop test** + FRB bridge + facade + fountain interface | ✅ done (5 cargo + 93 dart tests) |
 | W3 | Sender: settings/pacing/pipeline/qr_encode + broadcast controller + app scaffold | ✅ done (163 dart + 8 flutter tests) |
 | W4 | Receiver: frames/stats/reassembler/**full-stack interop**/decode_pool + camera_service + saver | ✅ done (full-stack interop == original.bin, byte-identical) |
-| W5 | UI: brown theme, adaptive shell, send/settings/broadcast/receive views, app entry | ✅ done — send view + settings panel now real (D9 cache/back-nav), 36 flutter tests green |
-| W6 | README, reverse interop, final builds (apk + linux) | ⏳ pending |
+| W5 | UI: brown theme, adaptive shell, send/settings/broadcast/receive views, app entry | ✅ done — send view + settings panel now real (D9 cache/back-nav), 56 flutter tests green |
+| W6 | README, reverse interop, final builds (apk + linux) | ✅ reverse interop + README done (committed); APK build fixed by replacing abandoned `media_store_plus` with an in-house save MethodChannel; `flutter build apk --debug/--release` + `--split-per-abi` (arm64 ~18 MB) all green |
 
 ## 6. Brown theme (research-locked, do not deviate)
 
@@ -104,8 +104,6 @@ Light: primary `#53352B`, surface `#FFF8F6`, primaryContainer `#6D4C41` (== seed
 
 ## 8. Current open work
 
-1. **Fix shell test** (`test/shell/app_shell_test.dart` fails: `SendView` not found — the real SendView replaced the stub; the shell test needs the idle SendView to render or a pump adjustment).
-2. **Verify send flow widget test** — write `test/ui/send_view_test.dart` + `test/ui/settings_panel_test.dart` covering: pick→settings→broadcast, back-nav cache (no re-chunk on back), broadcast Stop→settings, bytesPerTile re-prepare only.
-3. **Rebuild APK** after NDK re-download; rebuild Linux bundle.
-4. **W6**: `flutter_app/README.md` (build steps for the user), reverse-interop (rust dumper → PWA wasm decoder), final verification pass.
-5. Keep PWA green (`display.ts` has an uncommitted parallel-task change — do not touch).
+1. **Device testing** (needs a real phone): camera scanning throughput, MediaStore save + tap-to-open on API 29+ and the API ≤ 28 legacy permission path, high-refresh detection on a real 90/120 Hz display, honest end-to-end rates.
+2. **Post-W6 additions (this session)**: custom Android save MethodChannel (`saveToDownloads`/`openFile` in `MainActivity.kt`, templated under `android_templates/`), AndroidManifest camera + save permissions + `QRStream` label, QRStream brown launcher icon (idempotent generator in `android_templates/icon/`), persisted default settings (Settings tab editor + send-flow prefill via `shared_preferences`).
+3. Keep PWA green (`display.ts` has an uncommitted parallel-task change — do not touch).

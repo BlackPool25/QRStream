@@ -12,9 +12,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:qr_transfer_core/codec/fountain/interface.dart';
+import 'package:qr_transfer_core/protocol/constants.dart' as qrc;
 
+import 'package:qr_data_transfer/settings/settings_store.dart';
 import 'package:qr_data_transfer/ui/send_view.dart';
 
 /// Deterministic fake encoder/decoder/factory (mirrors the PWA's fake
@@ -25,10 +28,16 @@ class FakeFountainFactory implements FountainFactory {
   int encoderCreations = 0;
   int decoderCreations = 0;
 
+  /// The most recently created encoder — lets tests assert the settings (mtu)
+  /// the prepare actually used.
+  FountainEncoder? lastEncoder;
+
   @override
   Future<FountainEncoder> createEncoder(Uint8List data, int mtu) async {
     encoderCreations++;
-    return FakeEncoder(data, mtu);
+    final encoder = FakeEncoder(data, mtu);
+    lastEncoder = encoder;
+    return encoder;
   }
 
   @override
@@ -125,6 +134,9 @@ void main() {
     required Uint8List bytes,
     String name = 'test.bin',
   }) async {
+    // SendView now awaits the persisted defaults before picking; give it an
+    // empty mock store so the pre-fill resolves to the built-in defaults.
+    SharedPreferences.setMockInitialValues({});
     final factory = FakeFountainFactory();
     await tester.pumpWidget(
       MaterialApp(
@@ -206,12 +218,15 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('begin_broadcast')));
-    await tester.pump();
-    // The broadcast view shows a Stop control.
+    await tester.pump(); // start the fullscreen-route push
+    await tester.pump(const Duration(milliseconds: 400)); // route transition
+    // The broadcast route shows a Stop control (the shell chrome is hidden).
     expect(find.text('Stop'), findsOneWidget);
 
-    // Stop returns to the settings step; the cache is NOT re-encoded.
+    // Stop pops the route back to the settings step; the cache is NOT
+    // re-encoded.
     await tester.tap(find.text('Stop'));
+    await tester.pump(); // start the pop
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('begin_broadcast')), findsOneWidget);
@@ -234,6 +249,7 @@ void main() {
   });
 
   testWidgets('empty/invalid file shows an error, not a crash', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -248,5 +264,48 @@ void main() {
     await tester.tap(find.byKey(const Key('pick_file')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('pick_file')), findsOneWidget);
+  });
+
+  testWidgets('persisted defaults pre-fill the send flow', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'qrstream.defaults.bytesPerTile': '2k',
+      'qrstream.defaults.layout': 'row3',
+      'qrstream.defaults.targetFps': 24,
+      'qrstream.defaults.highRefresh': true,
+    });
+    final factory = FakeFountainFactory();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SendView(
+            filePicker: () =>
+                picker(Uint8List.fromList(List<int>.filled(4096, 0x42)),
+                    'test.bin'),
+            factory: factory,
+            refreshRateProbe: () async => 60,
+            settingsStore: SettingsStore(),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('pick_file')));
+    await tester.pumpAndSettle();
+
+    // The settings panel is pre-filled from the persisted defaults.
+    final fps = tester.widget<SegmentedButton<int>>(
+      find.byKey(const Key('fps_group')),
+    );
+    expect(fps.selected, {24});
+    final bytes = tester.widget<SegmentedButton<qrc.BytesPerTileId>>(
+      find.byKey(const Key('bytes_group')),
+    );
+    expect(bytes.selected, {qrc.BytesPerTileId.twoK});
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(const Key('layout_row3'))).selected,
+      isTrue,
+    );
+    // The prepare received the pre-filled settings: 2 KB -> mtu 2052.
+    expect(factory.encoderCreations, 1);
+    expect(factory.lastEncoder?.symbolSize, 2052);
   });
 }

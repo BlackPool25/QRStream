@@ -25,7 +25,7 @@
  * generator rewrites every frame; the seeds below keep the CONTENT
  * deterministic. Re-run only when the wire format changes.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -143,39 +143,53 @@ describe.each(CASES)('fixture $name', (fixture) => {
         expect(frame.payload.length).toBe(info.mtu)
       }
 
-      // Commit the fixtures.
+      // Commit the fixtures — only when absent, so `npm test` stays
+      // idempotent: the committed fixtures are the interop contract, and the
+      // sessionId is random per run (writing every time would churn them and
+      // break core's hardcoded-fixture expectations). Regenerate deliberately
+      // by deleting a fixture dir, then running this file.
       const dir = join(FIXTURES_ROOT, fixture.name)
-      mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, 'original.bin'), original)
-      writeFileSync(join(dir, 'payload.bin'), payload)
-      writeFileSync(join(dir, 'deflate.bin'), payload)
-      writeFileSync(join(dir, 'meta.frame'), firstOrThrow(metaFrames))
-      writeFileSync(join(dir, 'data.frames'), lengthPrefixed(dataFrames))
-      writeFileSync(join(dir, 'repair.frames'), lengthPrefixed(repairs))
-      writeFileSync(
-        join(dir, 'manifest.json'),
-        `${JSON.stringify(
-          {
-            name: fixture.name,
-            originalSize: info.totalSize,
-            compressedSize: info.compressedSize,
-            compressed: info.compressed,
-            k: info.k,
-            mtu: info.mtu,
-            symbolSize: info.symbolSize,
-            sessionId: info.sessionId,
-            fileSHA256: info.fileSHA256,
-            payloadSHA256: sha256Hex(payload),
-            deflateSHA256: sha256Hex(payload),
-            profile: { ...info.settings },
-            generatedBy: 'pwa-interop-gen',
-          },
-          null,
-          2,
-        )}\n`,
-      )
+      if (!existsSync(join(dir, 'manifest.json'))) {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'original.bin'), original)
+        writeFileSync(join(dir, 'payload.bin'), payload)
+        writeFileSync(join(dir, 'deflate.bin'), payload)
+        writeFileSync(join(dir, 'meta.frame'), firstOrThrow(metaFrames))
+        writeFileSync(join(dir, 'data.frames'), lengthPrefixed(dataFrames))
+        writeFileSync(join(dir, 'repair.frames'), lengthPrefixed(repairs))
+        writeFileSync(
+          join(dir, 'manifest.json'),
+          `${JSON.stringify(
+            {
+              name: fixture.name,
+              originalSize: info.totalSize,
+              compressedSize: info.compressedSize,
+              compressed: info.compressed,
+              k: info.k,
+              mtu: info.mtu,
+              symbolSize: info.symbolSize,
+              sessionId: info.sessionId,
+              fileSHA256: info.fileSHA256,
+              payloadSHA256: sha256Hex(payload),
+              deflateSHA256: sha256Hex(payload),
+              profile: { ...info.settings },
+              generatedBy: 'pwa-interop-gen',
+            },
+            null,
+            2,
+          )}\n`,
+        )
+      }
 
-      // Then — read the committed bytes back and verify them independently.
+      // Then — read the bytes back and verify them independently. The
+      // sessionId is random per generation, so when the fixture pre-existed
+      // the on-disk manifest is the source of truth for it (the deterministic
+      // fields — k/mtu/sizes — must still match this run's in-memory values).
+      const readManifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as Record<
+        string,
+        unknown
+      >
+      const readSessionId = readManifest['sessionId'] as string
       const readData = splitLengthPrefixed(readFileSync(join(dir, 'data.frames')))
       expect(readData.length).toBe(info.k)
       for (const [esi, frameBytes] of readData.entries()) {
@@ -189,18 +203,14 @@ describe.each(CASES)('fixture $name', (fixture) => {
         expect(decodeFrame(frameBytes).payload.length).toBe(info.mtu)
       }
       const readMeta = parseMetadataFrame(readFileSync(join(dir, 'meta.frame')))
-      expect(readMeta.sessionId).toBe(info.sessionId)
+      expect(readMeta.sessionId).toBe(readSessionId)
       expect(readMeta.k).toBe(info.k)
       expect(readMeta.compressed).toBe(info.compressed)
       const readPayload = readFileSync(join(dir, 'payload.bin'))
       expect(readPayload.length).toBe(info.compressedSize)
-      const readManifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as Record<
-        string,
-        unknown
-      >
       expect(readManifest).toMatchObject({
         k: info.k,
-        sessionId: info.sessionId,
+        sessionId: readSessionId,
         payloadSHA256: sha256Hex(readPayload),
       })
     } finally {

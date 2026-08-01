@@ -7,13 +7,14 @@
 /// [metadataRebroadcastEvery] ticks one data tile becomes the META frame
 /// (slot 0) so receivers joining mid-broadcast learn the session + file; the
 /// remaining tiles carry a deterministic round-robin schedule of RaptorQ
-/// source/repair frames (receivers dedup by esi). The loop measures each
-/// tick's encode work and steps the fps down (floor [minFps]) when a frame
-/// overruns its budget, and it emits [SenderStats] roughly every 500ms.
+/// source/repair frames (receivers dedup by esi).
 ///
-/// Logic-only: the controller builds [QrMatrix] tiles — the view paints them
-/// (see `lib/ui/qr_grid_painter.dart`), repainting on [frameSignal]. This
-/// keeps the loop unit-testable without widgets.
+/// QR encoding runs in a BACKGROUND isolate ([QrEncodeWorker]) with a bounded
+/// per-esi matrix cache: the controller requests frames a few ticks ahead
+/// (lookahead) and the worker encodes + caches them, so the UI isolate only
+/// drains ready matrices and repaints — never encodes. When the worker cannot
+/// keep up, the tick is skipped (the previous frame stays on screen) and the
+/// effective fps drops naturally. Tests inject a synchronous [EncodeBackend].
 library;
 
 import 'dart:async';
@@ -22,9 +23,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:qr_transfer_core/protocol/constants.dart';
 import 'package:qr_transfer_core/qr/qr_encode.dart';
+import 'package:qr_transfer_core/sender/encode_worker.dart';
 import 'package:qr_transfer_core/sender/pacing.dart';
 import 'package:qr_transfer_core/sender/pipeline.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+
+/// How many frames ahead of the rendered frame the loop keeps the encode
+/// worker busy (encode lookahead + in-flight slack).
+const int _lookaheadFrames = 4;
+
+/// Maximum buffered-but-not-yet-displayed frames; older entries are dropped.
+const int _readyFrameCap = 32;
+
+/// One completed frame from the encode backend: its tiles plus the round-robin
+/// esi schedule they carry (so the view can key cached tile bitmaps by esi).
+typedef DrainedFrame = ({int frameIndex, List<QrMatrix?> tiles, List<int> esis});
 
 /// Broadcast display controller for one prepared transfer.
 class BroadcastController {
@@ -33,19 +46,27 @@ class BroadcastController {
   /// [canvasWidth]/[canvasHeight] seed the layout suggestion; they default to
   /// 0 so the pre-start pacing is unaffected (matching the PWA, where the
   /// canvas is sized at start()).
+  ///
+  /// [onFramesDrained] fires with every batch of frames the encode backend
+  /// completes — including frames buffered ahead of the one displayed — so
+  /// the view can pre-decode tile bitmaps before they appear on screen.
   BroadcastController({
     required PreparedTransfer prepared,
     required TransferSettings settings,
     required TickerProvider vsync,
     ValueChanged<SenderStats>? onStats,
+    ValueChanged<List<DrainedFrame>>? onFramesDrained,
+    EncodeBackend? encode,
     int canvasWidth = 0,
     int canvasHeight = 0,
   })  : _prepared = prepared,
         _settings = settings,
         // The public parameter cannot be an initializing formal for the
-        // private `_onStats` field.
+        // private `_onStats` / `_onFramesDrained` fields.
         // ignore: prefer_initializing_formals
         _onStats = onStats,
+        // ignore: prefer_initializing_formals
+        _onFramesDrained = onFramesDrained,
         _pool = FramePool(
           k: prepared.info.k,
           dataFrames: () => prepared.dataFrames,
@@ -60,18 +81,24 @@ class BroadcastController {
         currentFps = resolvePacing(settings, canvasWidth, canvasHeight)
             .effectiveFps {
     _version = bytesPerTile[settings.bytesPerTile]!.version;
-    final grid = layouts[settings.layout]!;
-    _tilesPerFrame = grid.cols * grid.rows;
+    _grid = layouts[settings.layout]!;
+    _tilesPerFrame = _grid.cols * _grid.rows;
+    // Encoding lives in a background isolate by default; tests inject a
+    // synchronous backend.
+    _encode = encode ?? QrEncodeWorker(version: _version);
     _ticker = vsync.createTicker(_onTick);
   }
 
   final PreparedTransfer _prepared;
   final TransferSettings _settings;
   final ValueChanged<SenderStats>? _onStats;
+  final ValueChanged<List<DrainedFrame>>? _onFramesDrained;
   final FramePool _pool;
 
+  late final EncodeBackend _encode;
   late final Ticker _ticker;
   late final int _version;
+  late final ({int cols, int rows}) _grid;
   late final int _tilesPerFrame;
 
   /// Current broadcast cadence (fps): starts at the resolved effective fps
@@ -91,6 +118,10 @@ class BroadcastController {
   bool _started = false;
   bool _boost = false;
   bool _disposed = false;
+
+  // Encode-pipeline state.
+  int _nextRequest = 0; // next frame index to ask the worker for
+  final Map<int, DrainedFrame> _ready = {}; // frames buffered ahead
 
   final Stopwatch _workStopwatch = Stopwatch();
 
@@ -142,14 +173,16 @@ class BroadcastController {
     if (_boost) unawaited(_applyWakelock(false));
   }
 
-  /// Stops the loop, releases the wake lock if held and frees the RaptorQ
-  /// encoder. Idempotent; call once when the broadcast is done.
+  /// Stops the loop, releases the wake lock if held, disposes the encode
+  /// worker and frees the RaptorQ encoder. Idempotent; call once when the
+  /// broadcast is done.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     stop();
     _ticker.dispose();
     _frameSignal.dispose();
+    _encode.dispose();
     _prepared.encoder.dispose();
   }
 
@@ -161,11 +194,12 @@ class BroadcastController {
     if (_started) unawaited(_applyWakelock(active));
   }
 
-  /// The Ticker tick — the rAF equivalent. Ticks that arrive before the frame
-  /// delay are skipped (holding fps at or below the target so QRs phase-drift
-  /// across camera captures); otherwise one frame is rendered, the fps adapts
-  /// to the measured encode budget and stats emit when the 500ms window
-  /// elapses.
+  /// The Ticker tick. Ticks that arrive before the frame delay are skipped
+  /// (holding fps at or below the target so QRs phase-drift across camera
+  /// captures); otherwise the loop keeps the encode worker ~[_lookaheadFrames]
+  /// ahead, drains any completed frames and applies at most ONE (so the
+  /// display cadence stays disciplined — a worker that lags simply causes
+  /// skipped ticks, never a UI-thread encode).
   void _onTick(Duration elapsed) {
     final nowMs = elapsed.inMicroseconds / 1000;
     final frameDelayMs = computeFrameDelayMs(currentFps);
@@ -175,46 +209,97 @@ class BroadcastController {
     _lastRenderTimeMs = nowMs;
 
     _workStopwatch..reset()..start();
-    renderFrame(_renderedTicks);
-    _renderedTicks++;
+    // Keep the worker ahead of the rendered frame.
+    while (_nextRequest < _renderedTicks + _lookaheadFrames) {
+      _requestFrame(_nextRequest);
+      _nextRequest++;
+    }
+    _drainAndApply();
     final workMs = _workStopwatch.elapsedMicroseconds / 1000;
     currentFps = adaptFps(currentFps, workMs.round(), frameDelayMs);
     _emitStatsIfDue(nowMs);
   }
 
-  /// Build the tile list for one frame: the META QR in slot 0 on meta ticks,
-  /// then data tiles from the deterministic round-robin esi schedule. Also
-  /// public so tests can drive frames directly.
+  /// Requests the tiles for one frame from the encode backend: the META QR in
+  /// slot 0 on meta ticks, then data tiles from the deterministic round-robin
+  /// esi schedule. Public so tests can drive frames directly.
   void renderFrame(int frameIndex) {
+    _requestFrame(frameIndex);
+    _drainAndApply();
+  }
+
+  void _requestFrame(int frameIndex) {
     final showMeta = frameIndex % metadataRebroadcastEvery == 0;
     final dataTiles = showMeta ? _tilesPerFrame - 1 : _tilesPerFrame;
     final esis =
         nextEsiRoundRobin(_pool.k, _pool.repairAvailable, frameIndex, dataTiles);
-
-    final tiles = <QrMatrix?>[];
+    final reqEsis = <int>[];
+    final reqBytes = <Uint8List?>[];
     if (showMeta) {
-      tiles.add(_encodeFrame(_prepared.metaFrames.first));
+      reqEsis.add(metaSlotEsi);
+      reqBytes.add(_prepared.metaFrames.first);
     }
     for (final esi in esis) {
-      tiles.add(_encodeFrame(_pool.frameBytes(esi)));
+      reqEsis.add(esi);
+      reqBytes.add(_pool.frameBytes(esi));
     }
-
-    _currentTiles = tiles;
-    _lastEsis = esis;
-    _lastFrameMeta = showMeta;
-    _frameSignal.emit();
+    _encode.requestFrame(
+      frameIndex: frameIndex,
+      esis: reqEsis,
+      frameBytes: reqBytes,
+    );
   }
 
-  QrMatrix? _encodeFrame(Uint8List frameBytes) {
-    try {
-      return encodeQrBytes(frameBytes, version: _version);
-    } on Exception {
-      // A frame that does not fit its QR version is an integration bug; the
-      // PWA converts it into a skipped tile + dropped-tick count, never a
-      // crash.
-      _failedTicks++;
-      return null;
+  /// Drains completed frames from the backend: late frames (already rendered)
+  /// are dropped, the next-in-order frame is applied (at most one per call,
+  /// keeping the display cadence), and the rest stay buffered (bounded).
+  void _drainAndApply() {
+    for (final (frameIndex, tiles) in _encode.drain()) {
+      if (frameIndex < _renderedTicks) continue; // late — drop
+      _ready[frameIndex] = _frameWithEsis(frameIndex, tiles);
     }
+    final onFrames = _onFramesDrained;
+    if (onFrames != null && _ready.isNotEmpty) {
+      onFrames(_ready.values.toList());
+    }
+    final next = _ready.remove(_renderedTicks);
+    if (next != null) {
+      _applyFrame(next);
+      _renderedTicks++;
+    }
+    if (_ready.length > _readyFrameCap) {
+      final keys = _ready.keys.toList()..sort();
+      while (_ready.length > _readyFrameCap) {
+        _ready.remove(keys.removeAt(0));
+      }
+    }
+  }
+
+  /// Recomputes the round-robin esi schedule for [frameIndex] and pairs it
+  /// with the tile list the backend produced.
+  DrainedFrame _frameWithEsis(int frameIndex, List<QrMatrix?> tiles) {
+    final showMeta = frameIndex % metadataRebroadcastEvery == 0;
+    return (
+      frameIndex: frameIndex,
+      tiles: tiles,
+      esis: nextEsiRoundRobin(
+        _pool.k,
+        _pool.repairAvailable,
+        frameIndex,
+        showMeta ? _tilesPerFrame - 1 : _tilesPerFrame,
+      ),
+    );
+  }
+
+  void _applyFrame(DrainedFrame frame) {
+    final showMeta = frame.frameIndex % metadataRebroadcastEvery == 0;
+    _currentTiles = frame.tiles;
+    _lastEsis = frame.esis;
+    _lastFrameMeta = showMeta;
+    for (final tile in frame.tiles) {
+      if (tile == null) _failedTicks++;
+    }
+    _frameSignal.emit();
   }
 
   void _emitStatsIfDue(double nowMs) {

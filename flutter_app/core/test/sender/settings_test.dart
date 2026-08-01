@@ -211,18 +211,20 @@ void main() {
           highRefresh: false,
         );
 
-    test('formats V{version} · {cols}×{rows} from the profile tables', () {
+    test('formats V{version} · {rows}×{cols} from the profile tables', () {
       expect(
         transferLabel(settings(BytesPerTileId.oneK, LayoutId.grid4)),
         'V27 · 2×2',
       );
+      // Layouts read as rows×cols: the 1-column column3 is "3×1", the
+      // 1-row row3 is "1×3".
       expect(
         transferLabel(settings(BytesPerTileId.twoK, LayoutId.column3)),
-        'V34 · 1×3',
+        'V34 · 3×1',
       );
       expect(
         transferLabel(settings(BytesPerTileId.twoAndHalfK, LayoutId.row3)),
-        'V40 · 3×1',
+        'V40 · 1×3',
       );
       expect(
         transferLabel(settings(BytesPerTileId.oneK, LayoutId.single)),

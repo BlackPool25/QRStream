@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:qr_data_transfer/shell/app_shell.dart';
 import 'package:qr_data_transfer/ui/receive_view.dart';
@@ -16,6 +17,9 @@ void main() {
     required bool linuxOnly,
     required double width,
   }) async {
+    // SettingsView loads its defaults from SharedPreferences on mount; give
+    // it an empty mock store so the editor renders instead of a spinner.
+    SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = Size(width, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);

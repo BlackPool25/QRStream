@@ -1,20 +1,27 @@
-/// Broadcast view — the always-dark QR stage with status chips and Boost/Stop
-/// transport controls. Port of the PWA's `SenderBroadcast`
-/// (src/ui/SenderBroadcast.tsx).
+/// Broadcast view — the always-dark QR stage with minimal transport controls.
+/// Port of the PWA's `SenderBroadcast` (src/ui/SenderBroadcast.tsx).
 ///
 /// A [BroadcastController] drives a continuous grid of QR tiles; the view
 /// paints them full-bleed on the espresso stage via [QrGridPainter], repainting
-/// on the controller's frame signal. A bottom gradient overlay carries the
-/// live status chips (filename, size, transfer profile, rate, k, fps, dropped,
-/// elapsed) and the Boost (screen-awake) and Stop controls.
+/// on the controller's frame signal. The overlay is deliberately minimal so
+/// the receiver camera sees as much clean QR as possible: one compact pill of
+/// transport controls (Fullscreen / Boost / Stop) at the top and a single
+/// dim live-stats line at the bottom. Fullscreen hides the system bars
+/// (immersive sticky) so the whole display is QR.
 ///
 /// The stage theme comes from lib/theme/app_theme.dart (T5.1): the Scaffold
 /// always paints the espresso background, so the stage stays dark even under a
 /// light app theme.
 library;
 
+import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart' hide LayoutId;
+import 'package:flutter/services.dart';
 import 'package:qr_transfer_core/protocol/constants.dart';
+import 'package:qr_transfer_core/qr/qr_encode.dart';
+import 'package:qr_transfer_core/sender/encode_worker.dart';
 import 'package:qr_transfer_core/sender/pacing.dart';
 import 'package:qr_transfer_core/sender/pipeline.dart';
 import 'package:qr_transfer_core/sender/settings.dart';
@@ -30,6 +37,7 @@ class BroadcastView extends StatefulWidget {
     required this.prepared,
     required this.settings,
     required this.onStop,
+    this.encodeBackend,
   });
 
   /// The transfer to broadcast; the controller owns and disposes its encoder.
@@ -41,6 +49,10 @@ class BroadcastView extends StatefulWidget {
   /// Invoked once the broadcast has been stopped and disposed.
   final VoidCallback onStop;
 
+  /// Encode backend for the broadcast loop; defaults to the background
+  /// isolate worker. Tests inject a synchronous fake.
+  final EncodeBackend? encodeBackend;
+
   @override
   State<BroadcastView> createState() => _BroadcastViewState();
 }
@@ -48,29 +60,95 @@ class BroadcastView extends StatefulWidget {
 class _BroadcastViewState extends State<BroadcastView>
     with SingleTickerProviderStateMixin {
   late final BroadcastController _controller;
+  late final _TileImageCache _imageCache;
   SenderStats? _stats;
   bool _boost = false;
+  bool _fullscreen = false;
+  bool _controlsVisible = true;
+  Timer? _hideTimer;
+
+  /// Overlay controls auto-hide after this long so they never sit over the QR
+  /// stream during active broadcasting; tapping the stage brings them back.
+  static const Duration _controlsTimeout = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
+    _imageCache = _TileImageCache();
     _controller = BroadcastController(
       prepared: widget.prepared,
       settings: widget.settings,
       vsync: this,
       onStats: (stats) => setState(() => _stats = stats),
+      onFramesDrained: _onFramesDrained,
+      encode: widget.encodeBackend,
     )..start();
+    // Rebuild on every applied frame (and on tile-bitmap decodes) so the
+    // painter always reads the controller's LIVE frame — the CustomPaint's
+    // `repaint` listenable alone would repaint the last-BUILT painter with
+    // stale tiles, freezing the visible stream between stats rebuilds.
+    _controller.frameSignal.addListener(_onFrame);
+    _imageCache.addListener(_onFrame);
+    _scheduleHide();
+  }
+
+  void _onFrame() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
+    _controller.frameSignal.removeListener(_onFrame);
+    _imageCache.removeListener(_onFrame);
+    _imageCache.dispose();
     _controller.dispose();
+    // Leave fullscreen when the broadcast ends (best-effort; fire-and-forget).
+    if (_fullscreen) {
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge),
+      );
+    }
     super.dispose();
   }
 
+  /// Pre-decodes the drained frames' tiles into the bitmap cache so they are
+  /// ready to blit one frame before they are displayed.
+  void _onFramesDrained(List<DrainedFrame> frames) {
+    for (final frame in frames) {
+      for (var i = 0; i < frame.tiles.length; i++) {
+        final esi = i < frame.esis.length ? frame.esis[i] : i;
+        _imageCache.ensure(esi, frame.tiles[i]);
+      }
+    }
+  }
+
+  /// Shows the overlay and restarts the auto-hide countdown.
+  void _pokeControls() {
+    setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_controlsTimeout, () {
+      if (mounted) setState(() => _controlsVisible = false);
+    });
+  }
+
   void _toggleBoost() {
+    _pokeControls();
     setState(() => _boost = !_boost);
     _controller.setBoost(_boost);
+  }
+
+  Future<void> _toggleFullscreen() async {
+    _pokeControls();
+    final next = !_fullscreen;
+    setState(() => _fullscreen = next);
+    await SystemChrome.setEnabledSystemUIMode(
+      next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
   }
 
   void _stop() {
@@ -84,145 +162,163 @@ class _BroadcastViewState extends State<BroadcastView>
       data: buildQrStageTheme(),
       child: Scaffold(
         backgroundColor: qrStageBackground,
-        body: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            CustomPaint(
-              painter: QrGridPainter(
-                tiles: _controller.currentFrame,
-                layout: _controller.settings.layout,
-                version: _controller.version,
-                repaint: _controller.frameSignal,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // Tapping the QR stage brings the overlay back (and resets the
+          // auto-hide countdown).
+          onTap: _pokeControls,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              CustomPaint(
+                painter: QrGridPainter(
+                  tiles: _controller.currentFrame,
+                  esis: _controller.lastEsis,
+                  images: _imageCache.images,
+                  layout: _controller.settings.layout,
+                  version: _controller.version,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                ),
               ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: DecoratedBox(
-                decoration: _stageOverlayGradient,
+              Positioned(
+                top: 12,
+                right: 12,
                 child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          alignment: WrapAlignment.center,
-                          children: _statusChips(),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            _boostButton(),
-                            const SizedBox(width: 12),
-                            _stopButton(),
-                          ],
-                        ),
-                      ],
+                  child: IgnorePointer(
+                    ignoring: !_controlsVisible,
+                    child: AnimatedOpacity(
+                      key: const Key('overlay_controls'),
+                      opacity: _controlsVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 250),
+                      child: _controlsPill(),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: SafeArea(
+                  top: false,
+                  child: Center(
+                    child: IgnorePointer(
+                      ignoring: !_controlsVisible,
+                      child: AnimatedOpacity(
+                        key: const Key('overlay_stats'),
+                        opacity: _controlsVisible ? 1 : 0,
+                        duration: const Duration(milliseconds: 250),
+                        child: _statsLine(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  static const BoxDecoration _stageOverlayGradient = BoxDecoration(
-    gradient: LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      stops: <double>[0, 0.65, 1],
-      colors: <Color>[
-        Color(0x000F1115),
-        Color(0x8C0F1115),
-        Color(0xEB0F1115),
-      ],
-    ),
-  );
+  /// Compact transport controls: Fullscreen / Boost / Stop in one subtle pill.
+  Widget _controlsPill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0F1115),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0x33232830)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _pillButton(
+            key: const Key('fullscreen_button'),
+            onPressed: _toggleFullscreen,
+            icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            label: 'Fullscreen',
+          ),
+          _pillButton(
+            key: const Key('boost_button'),
+            onPressed: _toggleBoost,
+            icon: _boost ? Icons.brightness_high : Icons.brightness_low,
+            label: 'Boost',
+          ),
+          _pillButton(
+            key: const Key('stop_button'),
+            onPressed: _stop,
+            icon: Icons.stop_rounded,
+            label: 'Stop',
+            foreground: const Color(0xFFFF8A84),
+          ),
+        ],
+      ),
+    );
+  }
 
-  List<Widget> _statusChips() {
+  Widget _pillButton({
+    required Key key,
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    Color? foreground,
+  }) {
+    return TextButton.icon(
+      key: key,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      style: TextButton.styleFrom(
+        foregroundColor: foreground ?? const Color(0xFFC9D1DC),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  /// One dim line of live stats — the whole status, no chip clutter.
+  Widget _statsLine() {
     final stats = _stats;
     final info = widget.prepared.info;
     if (stats == null) {
-      return <Widget>[const _Chip(text: 'Starting…')];
+      return _pill(const Text('Starting…', style: _statsTextStyle));
     }
     final settings = info.settings;
-    final elapsed = stats.fps > 0 ? (stats.tickCount / stats.fps).round() : 0;
-    return <Widget>[
-      _Chip(text: info.filename, ellipsis: true),
-      _Chip(text: _formatBytes(info.totalSize)),
-      _Chip(text: transferLabel(settings), variant: _ChipVariant.accent),
-      if (stats.fps > 0)
-        _Chip(text: '${_formatBytes(estimateThroughput(settings).round())}/s'),
-      _Chip(text: 'k ${stats.k}'),
-      _Chip(text: '${stats.fps} fps'),
-      _Chip(text: '${stats.droppedTicks} dropped', variant: _ChipVariant.warn),
-      _Chip(text: _formatEta(elapsed)),
+    final parts = <String>[
+      info.filename,
+      transferLabel(settings),
+      '${stats.fps.toStringAsFixed(1)} fps',
+      '${_formatBytes(estimateThroughput(settings).round())}/s',
+      'k ${stats.k}',
+      '${stats.droppedTicks} dropped',
     ];
+    return _pill(
+      Text(
+        parts.join(' · '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _statsTextStyle,
+      ),
+    );
   }
 
-  Widget _boostButton() => OutlinedButton.icon(
-        onPressed: _toggleBoost,
-        icon: Icon(_boost ? Icons.brightness_high : Icons.brightness_low),
-        label: const Text('Boost'),
-      );
+  static const TextStyle _statsTextStyle = TextStyle(
+    color: Color(0xFF9AA4B2),
+    fontSize: 12,
+    fontFamily: 'monospace',
+  );
 
-  Widget _stopButton() => OutlinedButton.icon(
-        onPressed: _stop,
-        icon: const Icon(Icons.stop_rounded),
-        label: const Text('Stop'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFFFF8A84),
-          side: const BorderSide(color: Color(0x73F85149)),
-        ),
-      );
-}
-
-enum _ChipVariant { muted, accent, warn }
-
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.text,
-    this.variant = _ChipVariant.muted,
-    this.ellipsis = false,
-  });
-
-  final String text;
-  final _ChipVariant variant;
-  final bool ellipsis;
-
-  @override
-  Widget build(BuildContext context) {
-    final (Color foreground, Color border) = switch (variant) {
-      _ChipVariant.muted => (const Color(0xFF8B93A0), const Color(0xFF232830)),
-      _ChipVariant.accent => (const Color(0xFF8FB8FF), const Color(0x734F8CFF)),
-      _ChipVariant.warn => (const Color(0xFFE0B35C), const Color(0x73D29922)),
-    };
+  Widget _pill(Widget child) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF161A20),
+        color: const Color(0xCC0F1115),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: border),
+        border: Border.all(color: const Color(0x33232830)),
       ),
-      constraints: ellipsis
-          ? const BoxConstraints(maxWidth: 176)
-          : const BoxConstraints(),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: ellipsis ? TextOverflow.ellipsis : TextOverflow.clip,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: foreground,
-              fontFamily: 'monospace',
-            ),
-      ),
+      child: child,
     );
   }
 }
@@ -241,15 +337,55 @@ String _formatBytes(int bytes) {
   return '$formatted ${units[unit]}';
 }
 
-/// Human-readable duration from seconds, matching the PWA's `formatEta`.
-String _formatEta(int seconds) {
-  if (seconds < 60) return '${seconds}s';
-  final minutes = seconds ~/ 60;
-  final restSeconds = seconds % 60;
-  if (minutes < 60) {
-    return restSeconds == 0 ? '${minutes}m' : '${minutes}m ${restSeconds}s';
+/// Bounded cache of pre-decoded tile bitmaps keyed by pool index. The
+/// broadcast view decodes each tile's matrix to a [ui.Image] one frame before
+/// it is displayed (see [_BroadcastViewState._onFramesDrained]); the painter
+/// blits the cached image (a single renderer-friendly draw per tile) instead
+/// of re-drawing thousands of module rects every frame.
+class _TileImageCache extends ChangeNotifier {
+  /// Cache cap in tile images (each ~matrix-resolution RGBA); evicted tiles
+  /// are simply re-decoded on their next appearance.
+  static const int _maxImages = 256;
+
+  final Map<int, ui.Image> _images = <int, ui.Image>{};
+  final Set<int> _decoding = <int>{};
+  bool _disposed = false;
+
+  /// Bitmaps ready to blit, keyed by pool index.
+  Map<int, ui.Image> get images => _images;
+
+  /// Decodes [matrix] for [esi] into the cache if not already present.
+  void ensure(int esi, QrMatrix? matrix) {
+    if (_disposed ||
+        matrix == null ||
+        _images.containsKey(esi) ||
+        _decoding.contains(esi)) {
+      return;
+    }
+    _decoding.add(esi);
+    final rgba = matrixToRgba(matrix);
+    final m = matrix.size;
+    ui.decodeImageFromPixels(rgba, m, m, ui.PixelFormat.rgba8888, (image) {
+      _decoding.remove(esi);
+      if (_disposed) {
+        image.dispose();
+        return;
+      }
+      _images[esi] = image;
+      while (_images.length > _maxImages) {
+        _images.remove(_images.keys.first)?.dispose();
+      }
+      notifyListeners();
+    });
   }
-  final hours = minutes ~/ 60;
-  final restMinutes = minutes % 60;
-  return restMinutes == 0 ? '${hours}h' : '${hours}h ${restMinutes}m';
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final image in _images.values) {
+      image.dispose();
+    }
+    _images.clear();
+    super.dispose();
+  }
 }

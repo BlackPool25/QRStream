@@ -54,6 +54,20 @@ cd flutter_app
 flutter create --platforms=android,linux --org com.qrtransfer --project-name qr_data_transfer .
 ```
 
+The generated `android/` must then be customized (it is gitignored, so the customizations
+are committed as templates here):
+
+- Copy `android_templates/MainActivity.kt` to
+  `android/app/src/main/kotlin/com/qrtransfer/qr_data_transfer/MainActivity.kt` — this adds
+  the `com.qrtransfer.qr_data_transfer/save` MethodChannel (MediaStore save to
+  Downloads/QRTransfer + tap-to-open). The `AndroidManifest.xml` is also templated
+  (camera + save permissions and the app label), so copy/apply that template too.
+- Regenerate the launcher icon set (the real QRSTREAM QR code on the espresso
+  `#161312` background, adaptive + legacy mipmaps) into the generated `android/` tree:
+  `~/dart-sdk/bin/dart android_templates/icon/generate.dart` (run from `flutter_app/`;
+  deterministic — safe to re-run). The script uses the app's own `package:qr` encoder and
+  only needs ImageMagick (`magick`) on PATH.
+
 ### 2. Native codec (the Rust FFI library the app loads)
 
 ```bash
@@ -61,14 +75,24 @@ cd flutter_app/rust
 cargo build
 ```
 
-This produces `flutter_app/rust/target/debug/libqr_transfer_rust.so`. If the Rust API
-changed, regenerate the bridge first:
+This produces `flutter_app/rust/target/debug/libqr_transfer_rust.so` (used by Linux
+desktop and `dart test`). If the Rust API changed, regenerate the bridge first:
 
 ```bash
 flutter_rust_bridge_codegen generate \
   --rust-input crate::api \
   --rust-root flutter_app/rust \
   --dart-output flutter_app/core/lib/rust
+```
+
+**Android** bundles the codec through a separate cross-compile — the `android/` tree is
+gitignored, so the committed script `flutter_app/scripts/build-android-so.sh` is the source
+of truth. It builds `libqr_transfer_rust.so` for **arm64-v8a only** (raptorq 2.0.1's NEON
+path needs unstable stdarch intrinsics on 32-bit ARM — the APK is restricted to arm64
+accordingly):
+
+```bash
+flutter_app/scripts/build-android-so.sh   # needs the Android NDK + rustup + cargo-ndk (auto-installed)
 ```
 
 ### 3. Core tests (pure Dart, no Flutter needed)
@@ -88,8 +112,15 @@ cd flutter_app/core
 cd flutter_app
 flutter pub get
 flutter run -d linux        # desktop
-flutter build apk --debug   # Android; first build downloads the NDK (~1 GB, needs network)
+flutter build apk --debug   # Android debug; first build downloads the NDK (~1 GB, needs network)
+
+# Android release — R8 shrinking + icon tree-shaking are on by default.
+# arm64-v8a only (the codec doesn't compile for 32-bit ARM): ~19 MB.
+flutter build apk --release --target-platform android-arm64
 ```
+
+The release APK is signed with the debug key (see `android/app/build.gradle.kts`) — fine for
+personal sideloading; swap in your own signing config before publishing.
 
 ## Usage
 
@@ -139,14 +170,18 @@ npm test
 npx playwright test   # needs `npm run build` first
 ```
 
+> **Warning**: `tests/interop-gen/gen-fixtures.test.ts` REGENERATES the committed PWA
+> fixtures with new random session ids — running it breaks the hardcoded fixture
+> expectations in core's `metadata_test`. Only run it when intentionally regenerating:
+> `npx vitest run tests/interop-gen/reverse` (the reverse-interop proof) is safe.
+
 ## Verified here vs on-device
 
 | Verified in this environment | Needs a real device |
 | --- | --- |
-| `flutter analyze` + `flutter test` (36 widget tests), core `dart analyze` + `dart test` (245 tests), `cargo test`, `flutter build linux --debug`, `flutter run -d linux`. Interop proofs: the FFI decoder reassembles PWA-produced packets byte-identical (Rust test + full-stack Dart test). The Android APK is pending: the first `flutter build apk` re-downloads the NDK. | Camera scanning throughput (whether zxing2 decode keeps up with a real sensor), MediaStore save on Android (API 29+), xdg-open reveal/open on Linux, high-refresh detection on a real 90/120 Hz display, and honest end-to-end transfer rates. |
+| `flutter analyze` + `flutter test` (64 widget tests), core `dart analyze` + `dart test` (255 tests), `cargo test`, `flutter build linux --debug`, `flutter build apk --debug` **and `--release`** (arm64-only ~19 MB (`--target-platform android-arm64`; the native codec compiles only for arm64)). Interop proofs: the FFI decoder reassembles PWA-produced packets byte-identical (Rust test + full-stack Dart test). The Android APK now builds green after replacing the abandoned `media_store_plus` plugin with an in-house `saveToDownloads`/`openFile` MethodChannel (MediaStore, no temp file). | Camera scanning throughput (whether zxing2 decode keeps up with a real sensor), MediaStore save + tap-to-open on a real Android phone (API 29+ and the legacy API ≤ 28 permission path), xdg-open reveal/open on Linux, high-refresh detection on a real 90/120 Hz display, and honest end-to-end transfer rates. |
 
-The parallel build-verification task owns the final gate on `flutter build apk` and the
-rebuilt Linux bundle.
+The release APK is signed with the debug key; add your own signing config before publishing.
 
 ## Project structure
 
@@ -176,5 +211,6 @@ flutter_app/
   ~20 fps, and a 1 MB file takes roughly 20 to 60 s (measured ~46 KB/s for 1 MiB). Defaults
   are 2×2 grid, 1 KB tiles, 15 fps.
 - The wire format caps a single transfer at 16 MiB (24-bit total length).
-- The Settings tab is an info screen showing the defaults; the per-transfer settings live in
-  the send flow.
+- The Settings tab edits the persisted default transfer settings (fps, bytes per tile,
+  layout, high refresh) that pre-fill each send flow; per-file overrides still live in the
+  send flow and are never re-encoded on back-nav.

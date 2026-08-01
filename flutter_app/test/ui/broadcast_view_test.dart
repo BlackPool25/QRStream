@@ -19,8 +19,54 @@ import 'package:qr_data_transfer/theme/app_theme.dart';
 import 'package:qr_data_transfer/ui/broadcast_view.dart';
 import 'package:qr_data_transfer/ui/qr_grid_painter.dart';
 import 'package:qr_transfer_core/codec/fountain/interface.dart';
+import 'package:qr_transfer_core/protocol/constants.dart';
+import 'package:qr_transfer_core/qr/qr_encode.dart';
+import 'package:qr_transfer_core/sender/encode_worker.dart';
 import 'package:qr_transfer_core/sender/pipeline.dart';
 import 'package:qr_transfer_core/sender/settings.dart';
+
+/// Synchronous encode backend so the widget tests drive the broadcast loop
+/// under fake async (a real isolate's replies would never land).
+class _SyncEncodeBackend implements EncodeBackend {
+  _SyncEncodeBackend({required this.version});
+
+  final int version;
+  final List<(int, List<QrMatrix?>)> _ready = [];
+
+  @override
+  void requestFrame({
+    required int frameIndex,
+    required List<int> esis,
+    required List<Uint8List?> frameBytes,
+  }) {
+    _ready.add((
+      frameIndex,
+      [
+        for (final bytes in frameBytes)
+          bytes == null
+              ? null
+              : (() {
+                  try {
+                    return encodeQrBytes(bytes, version: version);
+                  } on Exception {
+                    return null;
+                  }
+                })(),
+      ],
+    ));
+  }
+
+  @override
+  List<(int, List<QrMatrix?>)> drain() {
+    if (_ready.isEmpty) return const [];
+    final out = List<(int, List<QrMatrix?>)>.of(_ready);
+    _ready.clear();
+    return out;
+  }
+
+  @override
+  void dispose() {}
+}
 
 /// The pigeon BasicMessageChannel the wakelock_plus plugin uses (pinned by
 /// pubspec: wakelock_plus 1.7.0 → platform_interface 1.6.0).
@@ -152,6 +198,9 @@ Future<void> _pumpView(
         prepared: prepared,
         settings: prepared.info.settings,
         onStop: onStop ?? () {},
+        encodeBackend: _SyncEncodeBackend(
+          version: bytesPerTile[prepared.info.settings.bytesPerTile]!.version,
+        ),
       ),
     ),
   );
@@ -176,16 +225,19 @@ void main() {
       findsOneWidget,
     );
 
-    // ~500ms of ticker time → the first SenderStats → the full chip set.
+    // ~500ms of ticker time → the first SenderStats → the full stats line.
     for (var i = 0; i < 9; i++) {
       await tester.pump(const Duration(milliseconds: 67));
     }
 
-    expect(find.text('f.bin'), findsOneWidget);
-    expect(find.text(transferLabel(prepared.info.settings)), findsOneWidget);
-    expect(find.text('0 dropped'), findsOneWidget);
+    expect(find.textContaining('f.bin'), findsOneWidget);
+    expect(
+      find.textContaining(transferLabel(prepared.info.settings)),
+      findsOneWidget,
+    );
+    expect(find.textContaining('0 dropped'), findsOneWidget);
     expect(find.textContaining('fps'), findsOneWidget);
-    expect(find.textContaining('/s'), findsOneWidget); // live rate chip
+    expect(find.textContaining('/s'), findsOneWidget); // live rate
   });
 
   testWidgets('the stage background stays espresso under a light app theme', (
@@ -241,6 +293,89 @@ void main() {
     await tester.pump();
     expect(find.byIcon(Icons.brightness_low), findsOneWidget);
     expect(toggles, <bool>[true, false]);
+  });
+
+  testWidgets('fullscreen toggles the immersive system UI mode', (tester) async {
+    final prepared = await _buildPrepared();
+
+    await _pumpView(tester, prepared);
+
+    expect(find.byIcon(Icons.fullscreen), findsOneWidget);
+    await tester.tap(find.text('Fullscreen'));
+    await tester.pump();
+    expect(find.byIcon(Icons.fullscreen_exit), findsOneWidget);
+
+    await tester.tap(find.text('Fullscreen'));
+    await tester.pump();
+    expect(find.byIcon(Icons.fullscreen), findsOneWidget);
+  });
+
+  testWidgets('overlay auto-hides after 3s and returns on tap', (tester) async {
+    final prepared = await _buildPrepared();
+    await _pumpView(tester, prepared);
+
+    double overlayOpacity() => tester
+        .widget<AnimatedOpacity>(find.byKey(const Key('overlay_controls')))
+        .opacity;
+
+    expect(overlayOpacity(), 1);
+    // Auto-hide: after the 3s timeout the overlay fades out and stops
+    // receiving pointer events.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(overlayOpacity(), 0);
+    // Hidden controls also stop receiving pointer events.
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('overlay_controls')),
+                  matching: find.byType(IgnorePointer),
+                )
+                .first,
+          )
+          .ignoring,
+      isTrue,
+    );
+
+    // Tapping the QR stage brings it back.
+    await tester.tapAt(const Offset(50, 50));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(overlayOpacity(), 1);
+  });
+
+  testWidgets('the painter reads the live frame every tick, not a stale snapshot', (
+    tester,
+  ) async {
+    // The stale-snapshot bug: the painter captured `currentFrame` at build
+    // time and only rebuilt on the ~500ms stats tick, so between rebuilds the
+    // stage repainted the last-built (empty/stale) tiles — ~1-2 fps on screen
+    // even though the controller applied frames at the right cadence.
+    final prepared = await _buildPrepared();
+    await _pumpView(tester, prepared);
+
+    QrGridPainter painter() => tester
+        .widget<CustomPaint>(
+          find.byWidgetPredicate(
+            (w) => w is CustomPaint && w.painter is QrGridPainter,
+          ),
+        )
+        .painter! as QrGridPainter;
+
+    // First tick establishes the Ticker start; the second renders frame 0.
+    await tester.pump(const Duration(milliseconds: 67));
+    await tester.pump(const Duration(milliseconds: 67));
+    final frame0 = painter();
+    expect(frame0.tiles, hasLength(4), reason: 'frame 0 tiles reached the painter');
+
+    // The next tick renders frame 1 — no stats rebuild in between — and the
+    // painter must show the NEW tiles, not the previous snapshot.
+    await tester.pump(const Duration(milliseconds: 67));
+    final frame1 = painter();
+    expect(identical(frame1.tiles, frame0.tiles), isFalse,
+        reason: 'tiles advanced per frame (stale-snapshot bug regression)');
+    expect(frame1.tiles, hasLength(4));
   });
 
   testWidgets('stop calls onStop and disposes the encoder (factory spy)', (

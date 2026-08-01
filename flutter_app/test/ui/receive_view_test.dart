@@ -110,6 +110,9 @@ class FakeSaver {
   int openCount = 0;
   String? openedName;
 
+  /// When true, [open] throws — exercises the open-failure path.
+  bool failOpen = false;
+
   Future<SaveResult> save({
     required Uint8List bytes,
     required String filename,
@@ -127,6 +130,9 @@ class FakeSaver {
   Future<void> open(SaveResult result) async {
     openCount++;
     openedName = result.name;
+    if (failOpen) {
+      throw SaveException('no viewer for ${result.name}');
+    }
   }
 }
 
@@ -256,6 +262,43 @@ void main() {
       expect(fake.openedName, expectedName);
     });
   }
+
+  testWidgets('a failed open surfaces a SnackBar, never an unhandled error', (
+    tester,
+  ) async {
+    final fx = Fixture('random-1k');
+    final camera = FakeCameraService(<QrMatrix>[
+      encodeQrBytes(fx.metaFrame, version: 27),
+      for (final frame in fx.dataFrames) encodeQrBytes(frame, version: 27),
+    ]);
+    final fake = FakeSaver()..failOpen = true;
+
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        pool: pool,
+      ),
+    );
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => find.text('Save file').evaluate().isNotEmpty,
+      timeout: const Duration(seconds: 90),
+    );
+    await tester.tap(find.text('Save file'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('File saved'), findsOneWidget);
+
+    // When: the open fails. Then: a SnackBar shows the reason, no crash.
+    await tester.tap(find.text('Open file'));
+    await tester.pump();
+    expect(fake.openCount, 1);
+    expect(find.textContaining('Could not open the file'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('linuxOnly shows the phone card, no camera, no Start button', (
     tester,

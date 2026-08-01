@@ -131,6 +131,23 @@ void main() {
       expect(results.single.bytes, equals(frame));
     });
 
+    test('the white-on-dark espresso stage decodes via the inverted fallback', () async {
+      // The Flutter sender paints WHITE modules on the espresso stage; zxing
+      // assumes dark-on-light, so the pool must recover the frame from the
+      // inverted image (the PWA's dark-on-light render never exercises this).
+      final frame = wireFrame(3);
+      final image = rgbImage(frame);
+      final inverted = Uint8List(image.rgb.length);
+      for (var i = 0; i < inverted.length; i++) {
+        inverted[i] = 255 - image.rgb[i];
+      }
+
+      final results = await pool.decode(inverted, image.px, image.px);
+
+      expect(results, hasLength(1));
+      expect(results.single.bytes, equals(frame));
+    });
+
     test(
       'round-robin dispatch correlates every decode to its own frame',
       () async {

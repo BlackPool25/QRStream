@@ -10,13 +10,11 @@
 library;
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:media_store_plus/media_store_plus.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
+import 'package:qr_data_transfer/receiver/save_channel.dart';
 import 'package:qr_transfer_core/receiver/save_logic.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// How the platform save was performed.
 enum SaveMethod { mediaStore, fileSelector, download }
@@ -58,8 +56,9 @@ typedef OpenSavedFileFn = Future<void> Function(SaveResult result);
 /// File saver whose platform implementations are replaceable via
 /// [saveFn] / [openFn]; the defaults run on real devices.
 class Saver {
-  Saver({SaveFileFn? saveFn, OpenSavedFileFn? openFn, this.android = true})
-    : _saveFn = saveFn ?? _defaultSave,
+  Saver({SaveFileFn? saveFn, OpenSavedFileFn? openFn, bool? android})
+    : android = android ?? !kIsWeb && Platform.isAndroid,
+      _saveFn = saveFn ?? _defaultSave,
       _openFn = openFn ?? _defaultOpen;
 
   /// Host platform flag: picks the default save method (mediaStore vs
@@ -91,9 +90,6 @@ class Saver {
   Future<void> openSavedFile(SaveResult result) => _openFn(result);
 }
 
-/// App subfolder for MediaStore downloads (must be non-empty per the plugin).
-const String _mediaStoreAppFolder = 'QRTransfer';
-
 Future<SaveResult> _defaultSave({
   required Uint8List bytes,
   required String filename,
@@ -109,29 +105,24 @@ Future<SaveResult> _defaultSave({
   };
 }
 
+/// Saves through the native Android MediaStore channel: bytes go straight to
+/// the platform (no temp file), which inserts into the Downloads folder and
+/// returns the content URI for tap-to-open.
 Future<SaveResult> _saveViaMediaStore(
   Uint8List bytes,
   String filename,
   String mime,
 ) async {
   final name = sanitizeFilename(filename);
-  final dir = await getTemporaryDirectory();
-  final tempFile = File('${dir.path}/$name');
-  await tempFile.writeAsBytes(bytes, flush: true);
-  await MediaStore.ensureInitialized();
-  MediaStore.appFolder = _mediaStoreAppFolder;
-  final info = await MediaStore().saveFile(
-    tempFilePath: tempFile.path,
-    dirType: DirType.download,
-    dirName: DirName.download,
+  final saved = await SaveChannel.saveToDownloads(
+    bytes: bytes,
+    filename: name,
+    mime: mime,
   );
-  if (info == null) {
-    throw SaveException('could not save "$name" to the downloads folder');
-  }
   return SaveResult(
-    name: info.name,
+    name: saved.name,
     method: SaveMethod.mediaStore,
-    uri: info.uri.toString(),
+    uri: saved.uri,
   );
 }
 
@@ -165,7 +156,7 @@ Future<void> _defaultOpen(SaveResult result) async {
       if (uri == null) {
         return;
       }
-      await launchUrl(Uri.parse(uri), mode: LaunchMode.externalApplication);
+      await SaveChannel.openSavedFile(uri);
     case SaveMethod.fileSelector:
       final path = result.uri;
       if (path == null) {

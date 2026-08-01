@@ -348,7 +348,15 @@ class _ReceiveViewState extends State<ReceiveView> {
 
   Future<void> _open() async {
     final s = _saved;
-    if (s != null) await _saver.openSavedFile(s);
+    if (s == null) return;
+    try {
+      await _saver.openSavedFile(s);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open the file: $e')),
+      );
+    }
   }
 
   void _fail(String m) {

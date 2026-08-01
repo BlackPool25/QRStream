@@ -12,6 +12,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show ExternalLibrary;
 import 'package:qr_transfer_core/codec/fountain/interface.dart';
@@ -61,7 +63,20 @@ Future<void> _initRustLib(String? dylibPath) async {
 /// Resolves the dylib path in order: `QR_RUST_DYLIB` env var, then the debug
 /// build if present, then the release build, then the debug path (letting the
 /// load fail with a clear error).
-String resolveDylibPath() {
+///
+/// On Android the codec ships inside the APK as `lib/<abi>/libqr_transfer_rust.so`
+/// (see `scripts/build-android-so.sh`); dlopen finds it by bare name, so the
+/// host-path checks are skipped entirely.
+String resolveDylibPath() => resolveDylibPathFor(Platform.isAndroid);
+
+/// Platform-injectable core of [resolveDylibPath], factored out so the
+/// Android branch is unit-testable without touching [Platform] (which cannot
+/// be mocked on this SDK).
+@visibleForTesting
+String resolveDylibPathFor(bool isAndroid) {
+  if (isAndroid) {
+    return 'libqr_transfer_rust.so';
+  }
   final fromEnv = Platform.environment['QR_RUST_DYLIB'];
   if (fromEnv != null && fromEnv.isNotEmpty) {
     return fromEnv;

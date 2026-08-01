@@ -23,6 +23,7 @@ import 'package:qr_transfer_core/codec/fountain/interface.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
 import 'package:qr_transfer_core/protocol/constants.dart';
 import 'package:qr_transfer_core/qr/qr_encode.dart';
+import 'package:qr_transfer_core/sender/encode_worker.dart';
 import 'package:qr_transfer_core/sender/pacing.dart';
 import 'package:qr_transfer_core/sender/pipeline.dart';
 
@@ -51,7 +52,10 @@ class _SpyEncoder implements FountainEncoder {
   List<EncodedSymbol> encodeSourceSymbols() => const <EncodedSymbol>[];
 
   @override
-  List<EncodedSymbol> encodeRepair(int count) => const <EncodedSymbol>[];
+  List<EncodedSymbol> encodeRepair(int count) => [
+    for (var i = 0; i < count; i++)
+      EncodedSymbol(bytes: Uint8List(symbolSize), esi: sourceSymbolCount + i),
+  ];
 
   @override
   void dispose() {
@@ -124,6 +128,48 @@ class _TickerHostState extends State<_TickerHost>
   Widget build(BuildContext context) => widget.builder(context, this);
 }
 
+/// Synchronous [EncodeBackend] for tests: encodes on request and answers
+/// immediately, so the controller behaves exactly like the old inline encode
+/// path under fake-async pumps (a real isolate's replies would never land).
+class _SyncEncodeBackend implements EncodeBackend {
+  _SyncEncodeBackend({required this.version});
+
+  final int version;
+  final List<(int, List<QrMatrix?>)> _ready = [];
+
+  @override
+  void requestFrame({
+    required int frameIndex,
+    required List<int> esis,
+    required List<Uint8List?> frameBytes,
+  }) {
+    _ready.add((
+      frameIndex,
+      [for (final bytes in frameBytes) _encode(bytes)],
+    ));
+  }
+
+  QrMatrix? _encode(Uint8List? bytes) {
+    if (bytes == null) return null;
+    try {
+      return encodeQrBytes(bytes, version: version);
+    } on Exception {
+      return null;
+    }
+  }
+
+  @override
+  List<(int, List<QrMatrix?>)> drain() {
+    if (_ready.isEmpty) return const [];
+    final out = List<(int, List<QrMatrix?>)>.of(_ready);
+    _ready.clear();
+    return out;
+  }
+
+  @override
+  void dispose() {}
+}
+
 void main() {
   late PreparedTransfer sharedPrepared;
 
@@ -164,6 +210,9 @@ void main() {
       settings: transfer.info.settings,
       vsync: vsync,
       onStats: onStats,
+      encode: _SyncEncodeBackend(
+        version: bytesPerTile[transfer.info.settings.bytesPerTile]!.version,
+      ),
     );
   }
 
