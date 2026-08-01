@@ -23,6 +23,10 @@ export interface SenderSettingsProps {
   readonly fileName: string
   /** Original file size (totalSize) for display. */
   readonly fileSize: number
+  /** Source-symbol count (k) from the prepared transfer. */
+  readonly symbolCount: number
+  /** RaptorQ mtu (wire symbol size + 4) from the prepared transfer. */
+  readonly mtu: number
 }
 
 const FPS_OPTIONS: readonly number[] = [12, 15, 24, 30]
@@ -196,6 +200,10 @@ export function SenderSettings(props: SenderSettingsProps) {
           Different file
         </button>
       </div>
+
+      <p className="settings-summary-line">
+        k = {props.symbolCount} symbols · mtu {formatBytes(props.mtu)}
+      </p>
     </section>
   )
 }

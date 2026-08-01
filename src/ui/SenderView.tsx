@@ -4,7 +4,6 @@ import type { LayoutId, TransferSettings } from '../protocol/constants'
 import { suggestLayout } from '../sender/pacing'
 import { PipelineError, prepareTransfer, type PreparedTransfer } from '../sender/pipeline'
 import { DEFAULT_TRANSFER_SETTINGS, detectRefreshRate } from '../sender/settings'
-import { formatBytes } from './format'
 import { IconBack } from './icons'
 import { SenderBroadcast } from './SenderBroadcast'
 import { SenderSettings } from './SenderSettings'
@@ -230,10 +229,9 @@ export function SenderView({ onExit }: SenderViewProps) {
             onDifferentFile={backToPick}
             fileName={prepared.value.info.filename}
             fileSize={prepared.value.info.totalSize}
+            symbolCount={prepared.value.info.k}
+            mtu={prepared.value.info.mtu}
           />
-          <p className="settings-hint">
-            k = {prepared.value.info.k} symbols · mtu {formatBytes(prepared.value.info.mtu)}
-          </p>
         </div>
       )}
 
