@@ -18,12 +18,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:camera/camera.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:qr_data_transfer/receiver/camera_service.dart';
+import 'package:qr_data_transfer/receiver/frame_decoder.dart';
 import 'package:qr_data_transfer/receiver/saver.dart';
 import 'package:qr_data_transfer/ui/receive_view.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
-import 'package:qr_transfer_core/qr/qr_encode.dart';
-import 'package:qr_transfer_core/receiver/decode_pool.dart';
+import 'package:qr_transfer_core/receiver/decode_pool.dart' show DecodeResult;
 
 /// A committed PWA fixture set (wire frames + original bytes).
 class Fixture {
@@ -56,12 +58,12 @@ List<Uint8List> _splitLengthPrefixed(Uint8List bytes) {
   return out;
 }
 
-/// Camera fake: yields every [QrMatrix] as a rasterized RGB frame on start,
-/// exactly like the PWA's virtual camera feeding the orchestrator.
+/// Camera fake: delivers [frameCount] minimal CameraImages on start, exactly
+/// like the plugin delivering frames to the (injected) frame decoder.
 class FakeCameraService implements CameraService {
-  FakeCameraService(this.frames, {this.preview});
+  FakeCameraService(this.frameCount, {this.preview});
 
-  final List<QrMatrix> frames;
+  final int frameCount;
 
   /// Optional fake preview widget (exercises the preview path in the view).
   final Widget? preview;
@@ -72,11 +74,21 @@ class FakeCameraService implements CameraService {
   @override
   Future<void> start(FrameConsumer onFrame) async {
     started = true;
-    for (final qr in frames) {
-      final img = _rasterize(qr, ppm: 2);
-      onFrame(img.rgb, img.px, img.px);
+    for (var i = 0; i < frameCount; i++) {
+      onFrame(_dummyImage(), 90);
     }
   }
+
+  CameraImage _dummyImage() => CameraImage.fromPlatformInterface(
+    CameraImageData(
+      format: const CameraImageFormat(ImageFormatGroup.yuv420, raw: 35),
+      planes: [CameraImagePlane(bytes: _dummyBytes, bytesPerRow: 2)],
+      height: 2,
+      width: 2,
+    ),
+  );
+
+  static final Uint8List _dummyBytes = Uint8List(6);
 
   @override
   Future<void> stop() async {
@@ -85,30 +97,40 @@ class FakeCameraService implements CameraService {
 
   @override
   Widget? buildPreview() => preview;
+
+  @override
+  Future<void> flipCamera() async {}
+
+  @override
+  Future<void> setTorch(bool enabled) async {}
+
+  @override
+  Future<void> setZoom(double zoom) async {}
 }
 
-/// Rasterizes a QR module matrix into tight RGB at [ppm] pixels per module
-/// with a [quiet]-module white quiet zone (integer scales, like the sender).
-({Uint8List rgb, int px}) _rasterize(QrMatrix qr, {int ppm = 2, int quiet = 4}) {
-  final side = qr.size;
-  final px = (side + 2 * quiet) * ppm;
-  final rgb = Uint8List(px * px * 3);
-  for (var y = 0; y < px; y++) {
-    for (var x = 0; x < px; x++) {
-      final mx = x ~/ ppm - quiet;
-      final my = y ~/ ppm - quiet;
-      final dark = mx >= 0 &&
-          mx < side &&
-          my >= 0 &&
-          my < side &&
-          qr.modules[my * side + mx] == 1;
-      final o = (y * px + x) * 3;
-      rgb[o] = dark ? 0 : 255;
-      rgb[o + 1] = dark ? 0 : 255;
-      rgb[o + 2] = dark ? 0 : 255;
-    }
+/// Decoder fake: returns all fixture wire frames on the first decode, so the
+/// real FrameBuffer + Rust Reassembler receive the exact committed frames in
+/// one feed (the view feeds them in order — meta first, then data). The
+/// native ML Kit decode itself is device-verified; QR-decode correctness is
+/// covered by the interop + painter tests. Resolving everything in one call
+/// also keeps the test immune to the fake-async camera timing.
+class FakeFrameDecoder implements FrameDecoder {
+  FakeFrameDecoder(this.results);
+
+  final List<DecodeResult> results;
+  int calls = 0;
+
+  @override
+  Future<List<DecodeResult>> decode(
+    CameraImage image, {
+    required int rotationDegrees,
+  }) async {
+    if (calls++ == 0) return results;
+    return const [];
   }
-  return (rgb: rgb, px: px);
+
+  @override
+  void dispose() {}
 }
 
 /// Saver fake: records the bytes handed to saveFile and counts opens.
@@ -147,7 +169,7 @@ class FakeSaver {
 Widget _harness({
   required CameraService camera,
   required Saver saver,
-  required DecodePool pool,
+  required FrameDecoder decoder,
   bool linuxOnly = false,
 }) {
   return MaterialApp(
@@ -156,7 +178,7 @@ Widget _harness({
         linuxOnly: linuxOnly,
         cameraService: camera,
         saver: saver,
-        decodePool: pool,
+        frameDecoder: decoder,
       ),
     ),
   );
@@ -194,8 +216,6 @@ String? _resolveDylib() {
 }
 
 void main() {
-  late DecodePool pool;
-
   setUpAll(() async {
     final dylib = _resolveDylib();
     expect(
@@ -205,13 +225,7 @@ void main() {
           'before running these tests',
     );
     await ensureRustLib(dylibPath: dylib);
-    pool = DecodePool(size: 2);
-    // Prime the worker isolates in the real zone so the fake-async test body
-    // never has to wait on Isolate.spawn.
-    await pool.decode(Uint8List(3), 1, 1);
   });
-
-  tearDownAll(() => pool.dispose());
 
   for (final name in ['random-1k', 'random-64k', 'text-256k']) {
     testWidgets('$name: stats grow → VERIFIED → save (byte-identical) → open', (
@@ -220,17 +234,19 @@ void main() {
       final fx = Fixture(name);
       final expectedName = name == 'text-256k' ? 'text-256k.txt' : '$name.bin';
       final k = fx.dataFrames.length;
-      final camera = FakeCameraService(<QrMatrix>[
-        encodeQrBytes(fx.metaFrame, version: 27),
-        for (final frame in fx.dataFrames) encodeQrBytes(frame, version: 27),
-      ]);
+      final results = <DecodeResult>[
+        DecodeResult(bytes: fx.metaFrame),
+        for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+      ];
+      final camera = FakeCameraService(1);
+      final decoder = FakeFrameDecoder(results);
       final fake = FakeSaver();
 
       await tester.pumpWidget(
         _harness(
           camera: camera,
           saver: Saver(saveFn: fake.save, openFn: fake.open),
-          pool: pool,
+          decoder: decoder,
         ),
       );
 
@@ -274,17 +290,19 @@ void main() {
     tester,
   ) async {
     final fx = Fixture('random-1k');
-    final camera = FakeCameraService(<QrMatrix>[
-      encodeQrBytes(fx.metaFrame, version: 27),
-      for (final frame in fx.dataFrames) encodeQrBytes(frame, version: 27),
-    ]);
+    final results = <DecodeResult>[
+      DecodeResult(bytes: fx.metaFrame),
+      for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+    ];
+    final camera = FakeCameraService(1);
+    final decoder = FakeFrameDecoder(results);
     final fake = FakeSaver()..failOpen = true;
 
     await tester.pumpWidget(
       _harness(
         camera: camera,
         saver: Saver(saveFn: fake.save, openFn: fake.open),
-        pool: pool,
+        decoder: decoder,
       ),
     );
     await tester.tap(find.text('Start scanning'));
@@ -309,7 +327,7 @@ void main() {
 
   testWidgets('a live camera preview renders while scanning', (tester) async {
     final camera = FakeCameraService(
-      const <QrMatrix>[],
+      0,
       preview: const ColoredBox(key: Key('fake_preview'), color: Colors.green),
     );
     final fake = FakeSaver();
@@ -317,7 +335,7 @@ void main() {
       _harness(
         camera: camera,
         saver: Saver(saveFn: fake.save, openFn: fake.open),
-        pool: pool,
+        decoder: FakeFrameDecoder(const []),
       ),
     );
 
@@ -332,13 +350,13 @@ void main() {
   testWidgets('linuxOnly shows the phone card, no camera, no Start button', (
     tester,
   ) async {
-    final camera = FakeCameraService(const <QrMatrix>[]);
+    final camera = FakeCameraService(0);
     final fake = FakeSaver();
     await tester.pumpWidget(
       _harness(
         camera: camera,
         saver: Saver(saveFn: fake.save, openFn: fake.open),
-        pool: pool,
+        decoder: FakeFrameDecoder(const []),
         linuxOnly: true,
       ),
     );

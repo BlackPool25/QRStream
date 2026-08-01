@@ -23,10 +23,12 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import 'package:qr_data_transfer/receiver/camera_service.dart';
+import 'package:qr_data_transfer/receiver/frame_decoder.dart';
 import 'package:qr_data_transfer/receiver/saver.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
-import 'package:qr_transfer_core/receiver/decode_pool.dart';
+import 'package:qr_transfer_core/receiver/decode_pool.dart' show DecodeResult;
 import 'package:qr_transfer_core/receiver/frames.dart' show FeedResult, FeedStatus, FrameBuffer;
 import 'package:qr_transfer_core/receiver/reassembler.dart' show Reassembler, ReassemblyResult;
 import 'package:qr_transfer_core/receiver/stats.dart' show FeedState, ReceiverStats, ReceiverStatus, StatsSample, updateStats;
@@ -39,7 +41,7 @@ class ReceiveView extends StatefulWidget {
     this.linuxOnly,
     this.cameraService,
     this.saver,
-    this.decodePool,
+    this.frameDecoder,
     this.dylibPath,
     this.onExit,
   });
@@ -48,7 +50,10 @@ class ReceiveView extends StatefulWidget {
   final bool? linuxOnly;
   final CameraService? cameraService;
   final Saver? saver;
-  final DecodePool? decodePool;
+
+  /// Frame decoder (default: native ML Kit); tests inject a fake.
+  final FrameDecoder? frameDecoder;
+
   final String? dylibPath;
   final VoidCallback? onExit;
 
@@ -74,7 +79,10 @@ class _ReceiveViewState extends State<ReceiveView> {
   Reassembler? _reassembler;
   String? _sid;
   int? _mtu;
-  DecodePool? _pool;
+  FrameDecoder? _decoder;
+  bool _decoding = false; // in-flight guard: skip frames while one is processing
+  bool _torch = false;
+  double _zoom = 1.0;
   Stopwatch? _clock;
   int _window = 0;
   int _lastEmit = 0;
@@ -130,7 +138,7 @@ class _ReceiveViewState extends State<ReceiveView> {
 
   Future<void> _start() async {
     _reset();
-    _pool = widget.decodePool ?? DecodePool();
+    _decoder = widget.frameDecoder ?? MlKitFrameDecoder();
     // Scanning precedes camera start so frames arriving during start() are
     // processed (mirrors the PWA's status order).
     setState(() {
@@ -147,7 +155,7 @@ class _ReceiveViewState extends State<ReceiveView> {
 
   Future<void> _restart() async {
     await _camera.stop();
-    _releasePool();
+    _releaseDecoder();
     _reset();
     setState(() {
       _phase = _Phase.idle;
@@ -155,11 +163,11 @@ class _ReceiveViewState extends State<ReceiveView> {
     });
   }
 
-  /// Disposes the decode pool only when the view created it (an injected
-  /// pool is owned by the caller — e.g. a test shared across runs).
-  void _releasePool() {
-    if (widget.decodePool == null) _pool?.dispose();
-    _pool = null;
+  /// Disposes the decoder only when the view created it (an injected decoder
+  /// is owned by the caller — e.g. a test shared across runs).
+  void _releaseDecoder() {
+    if (widget.frameDecoder == null) _decoder?.dispose();
+    _decoder = null;
   }
 
   void _reset() {
@@ -177,24 +185,26 @@ class _ReceiveViewState extends State<ReceiveView> {
     _window = 0;
   }
 
-  void _frame(Uint8List rgb, int w, int h) {
-    final pool = _pool;
-    if (pool == null) return;
-    // Decodes serialize through [_queue], exactly like the PWA's feedQueue,
-    // so feed order is preserved and start()/feedMore() never race.
+  void _frame(CameraImage image, int rotationDegrees) {
+    final decoder = _decoder;
+    if (decoder == null || _decoding) return; // in-flight guard
+    _decoding = true;
     unawaited(
-      pool
-          .decode(rgb, w, h)
-          .then((rs) {
-            _queue = _queue
-                .then((_) => _decoded(rs))
-                .catchError((Object e) {
-                  if (mounted && _phase == _Phase.scanning) _fail('$e');
-                });
-          })
-          .catchError((Object e) {
-            if (mounted && _phase == _Phase.scanning) _fail('Decode failed: $e');
-          }),
+      decoder.decode(image, rotationDegrees: rotationDegrees).then((rs) {
+        _decoding = false;
+        if (!mounted) return;
+        // Decodes serialize through [_queue], exactly like the PWA's
+        // feedQueue, so feed order is preserved and start()/feedMore() never
+        // race.
+        _queue = _queue
+            .then((_) => _decoded(rs))
+            .catchError((Object e) {
+              if (mounted && _phase == _Phase.scanning) _fail('$e');
+            });
+      }).catchError((Object e) {
+        _decoding = false;
+        if (mounted && _phase == _Phase.scanning) _fail('Decode failed: $e');
+      }),
     );
   }
 
@@ -370,7 +380,7 @@ class _ReceiveViewState extends State<ReceiveView> {
 
   @override
   void dispose() {
-    _releasePool();
+    _releaseDecoder();
     _camera.stop();
     super.dispose();
   }
@@ -442,9 +452,94 @@ class _ReceiveViewState extends State<ReceiveView> {
             bottom: 128,
             child: _saveCard(c, r),
           ),
+        Positioned(
+          left: 12,
+          right: 12,
+          top: 12,
+          child: SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.center,
+              child: _cameraControls(c),
+            ),
+          ),
+        ),
         Positioned(left: 12, right: 12, bottom: 12, child: _StatsOverlay(_stats)),
       ],
     );
+  }
+
+  /// Compact camera controls: flip front/back, torch, and zoom in/out.
+  Widget _cameraControls(BuildContext c) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xCC101316),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const Key('flip_camera'),
+            onPressed: _flipCamera,
+            icon: const Icon(Icons.cameraswitch_outlined, size: 20),
+            color: Colors.white,
+            tooltip: 'Switch camera',
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            key: const Key('toggle_torch'),
+            onPressed: _toggleTorch,
+            icon: Icon(
+              _torch ? Icons.flash_on : Icons.flash_off,
+              size: 20,
+              color: _torch ? const Color(0xFFFFC46B) : Colors.white,
+            ),
+            tooltip: 'Torch',
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            key: const Key('zoom_out'),
+            onPressed: _zoomOut,
+            icon: const Icon(Icons.zoom_out, size: 20),
+            color: Colors.white,
+            tooltip: 'Zoom out',
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            key: const Key('zoom_in'),
+            onPressed: _zoomIn,
+            icon: const Icon(Icons.zoom_in, size: 20),
+            color: Colors.white,
+            tooltip: 'Zoom in',
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _flipCamera() async {
+    await _camera.flipCamera();
+  }
+
+  Future<void> _toggleTorch() async {
+    final next = !_torch;
+    setState(() => _torch = next);
+    await _camera.setTorch(next);
+  }
+
+  Future<void> _zoomIn() async {
+    final next = (_zoom + 0.5).clamp(1.0, 8.0);
+    setState(() => _zoom = next);
+    await _camera.setZoom(next);
+  }
+
+  Future<void> _zoomOut() async {
+    final next = (_zoom - 0.5).clamp(1.0, 8.0);
+    setState(() => _zoom = next);
+    await _camera.setZoom(next);
   }
 
   Widget _saveCard(BuildContext c, ReassemblyResult r) {

@@ -1,22 +1,25 @@
 /// Camera abstraction for the receive view (Wave 5 T5.5).
 ///
-/// A [CameraService] is a frame source that delivers RGB pixels to a
+/// A [CameraService] is a frame source that delivers camera frames to a
 /// consumer. The receive view depends on this abstraction only, so tests can
-/// inject a fake that yields synthetic frames (QR images rasterized from the
-/// committed fixtures) while the real Android app runs
+/// inject a fake that yields synthetic frames while the real Android app runs
 /// [PluginCameraService] over the `camera` plugin. Linux is send-only and
 /// never constructs a service.
+///
+/// Frames are delivered as the raw [CameraImage] plus the sensor rotation
+/// degrees — the ML Kit decoder consumes the YUV planes directly, so no
+/// per-frame pixel conversion happens on the UI thread.
 library;
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// One RGB camera frame: `width * height * 3` bytes, row-major.
-typedef FrameConsumer = void Function(Uint8List rgb, int width, int height);
+/// One camera frame: the raw YUV image plus the sensor orientation (0/90/180/270)
+/// the decoder needs to correct the frame for portrait capture.
+typedef FrameConsumer = void Function(CameraImage image, int rotationDegrees);
 
 /// Contract the receive view drives. Implementations must be safe to
 /// [start] once; [stop] is idempotent and always safe to call.
@@ -31,17 +34,25 @@ abstract class CameraService {
   /// Optional live camera preview widget to show while scanning; null when
   /// the service has no previewable controller (fakes, Linux).
   Widget? buildPreview() => null;
+
+  /// Switches between the front and back cameras. No-op when unsupported.
+  Future<void> flipCamera() async {}
+
+  /// Toggles the torch (flashlight). No-op when unsupported.
+  Future<void> setTorch(bool enabled) async {}
+
+  /// Sets the zoom factor (1.0 = none). No-op when unsupported.
+  Future<void> setZoom(double zoom) async {}
 }
 
-/// Real camera: wraps the `camera` plugin's [CameraController] and converts
-/// the YUV image stream to tight RGB before forwarding each frame. The
-/// controller is created on first [start] from the first available camera.
+/// Real camera: wraps the `camera` plugin's [CameraController] and delivers
+/// each frame's raw [CameraImage] plus its sensor rotation. The controller is
+/// created on first [start] from the first available (back) camera.
 ///
 /// The CAMERA permission is requested EXPLICITLY before the plugin is touched:
-/// CameraX's `availableCameras()` can return empty / throw when the permission
-/// is not yet granted, and the plugin's own request (inside `initialize()`)
-/// races its permission callback. A pre-granted permission makes the plugin's
-/// internal request a no-op success.
+/// Camera2's `availableCameras()` can fail when the permission is not yet
+/// granted, and the plugin's own request races its callback. A pre-granted
+/// permission makes the plugin's internal request a no-op success.
 class PluginCameraService implements CameraService {
   /// [controller] may be supplied (tests / embedders); otherwise the service
   /// acquires the first available camera itself.
@@ -54,6 +65,15 @@ class PluginCameraService implements CameraService {
   CameraController? _controller;
   FrameConsumer? _consumer;
   bool _started = false;
+  int _sensorOrientation = 90;
+  Stopwatch? _frameClock;
+
+  /// Minimum interval between frames handed to the consumer — the camera
+  /// streams at ~30 fps, but dispatching decodes at that rate overwhelms
+  /// mid-range phones (the PWA showed the same discipline: a controlled
+  /// capture cadence). ~66 ms caps processing at ~15 fps, which the decoder
+  /// keeps up with easily.
+  static const Duration _frameInterval = Duration(milliseconds: 66);
 
   @override
   Future<void> start(FrameConsumer onFrame) async {
@@ -76,16 +96,81 @@ class PluginCameraService implements CameraService {
       if (cameras.isEmpty) {
         throw CameraException('No camera found on this device', 'camera');
       }
+      final back = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      _sensorOrientation = back.sensorOrientation;
       controller = CameraController(
-        cameras.first,
+        back,
         ResolutionPreset.high,
         enableAudio: false,
       );
       await controller.initialize();
+      // Continuous autofocus — critical for sharp QR modules at close range.
+      // Best-effort: not every device/plugin supports every mode.
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+      } on CameraException {
+        // ignore: unsupported focus mode
+      }
       _controller = controller;
     }
     await controller.startImageStream(_onImage);
     _started = true;
+  }
+
+  /// Throttled frame dispatch: drops frames that arrive within
+  /// [_frameInterval] of the last processed one.
+  void _onImage(CameraImage image) {
+    final consumer = _consumer;
+    if (consumer == null) return;
+    final clock = _frameClock ??= Stopwatch()..start();
+    if (clock.elapsedMilliseconds < _frameInterval.inMilliseconds) return;
+    clock.reset();
+    consumer(image, _sensorOrientation);
+  }
+
+  @override
+  Future<void> flipCamera() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final cameras = await availableCameras();
+      final current = controller.description.lensDirection;
+      final next = cameras.firstWhere(
+        (c) => c.lensDirection != current,
+        orElse: () => cameras.first,
+      );
+      await controller.setDescription(next);
+      _sensorOrientation = next.sensorOrientation;
+    } on CameraException {
+      // ignore: unsupported camera switch
+    }
+  }
+
+  @override
+  Future<void> setTorch(bool enabled) async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    } on CameraException {
+      // ignore: unsupported torch
+    }
+  }
+
+  @override
+  Future<void> setZoom(double zoom) async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      final maxZoom = await controller.getMaxZoomLevel();
+      final minZoom = await controller.getMinZoomLevel();
+      await controller.setZoomLevel(zoom.clamp(minZoom, maxZoom));
+    } on CameraException {
+      // ignore: unsupported zoom
+    }
   }
 
   /// The live camera preview once [start] has initialized the controller.
@@ -94,14 +179,6 @@ class PluginCameraService implements CameraService {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return null;
     return CameraPreview(controller);
-  }
-
-  void _onImage(CameraImage image) {
-    final consumer = _consumer;
-    if (consumer == null) {
-      return;
-    }
-    consumer(_yuv420ToRgb(image), image.width, image.height);
   }
 
   @override
@@ -113,35 +190,4 @@ class PluginCameraService implements CameraService {
     }
     _started = false;
   }
-}
-
-/// Converts a YUV420 [CameraImage] (planes Y/U/V with per-plane row stride)
-/// to tight `width * height * 3` RGB bytes using the BT.601 full-range
-/// coefficients. Handles the common Android yuv420 layouts.
-Uint8List _yuv420ToRgb(CameraImage image) {
-  final planes = image.planes;
-  final yPlane = planes[0];
-  final uPlane = planes[1];
-  final vPlane = planes[2];
-  final width = image.width;
-  final height = image.height;
-  final out = Uint8List(width * height * 3);
-  var o = 0;
-  for (var row = 0; row < height; row++) {
-    for (var col = 0; col < width; col++) {
-      final y = yPlane.bytes[row * yPlane.bytesPerRow + col];
-      final u = uPlane.bytes[(row >> 1) * uPlane.bytesPerRow + (col >> 1)];
-      final v = vPlane.bytes[(row >> 1) * vPlane.bytesPerRow + (col >> 1)];
-      final c = y - 16;
-      final d = u - 128;
-      final e = v - 128;
-      final r = (298 * c + 409 * e + 128) >> 8;
-      final g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-      final b = (298 * c + 516 * d + 128) >> 8;
-      out[o++] = r < 0 ? 0 : (r > 255 ? 255 : r);
-      out[o++] = g < 0 ? 0 : (g > 255 ? 255 : g);
-      out[o++] = b < 0 ? 0 : (b > 255 ? 255 : b);
-    }
-  }
-  return out;
 }

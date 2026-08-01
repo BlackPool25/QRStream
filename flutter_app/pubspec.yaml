@@ -47,6 +47,10 @@ dependencies:
   # startImageStream has known stream-stopping/OOM bugs; Camera2 is the
   # battle-tested image-streaming path.
   camera_android: ^0.10.10
+  # Native ML Kit barcode scanning (bundled model, works offline): far more
+  # robust QR decoding than pure-Dart zxing2 (rotation/low-light/blur) and it
+  # consumes the camera frames directly, removing the YUV->RGB UI-thread cost.
+  google_mlkit_barcode_scanning: ^0.13.0
   # Open saved files with the default viewer.
   url_launcher: ^6.3.2
   # Explicit CAMERA permission request before the camera plugin starts (the
@@ -69,6 +73,9 @@ dev_dependencies:
   # QR decode in the painter decode-roundtrip test (a transitive core dep,
   # declared here so the test can import it).
   zxing2: ^0.2.4
+  # CameraImage construction in the receive-view tests (a transitive camera
+  # dep, declared here so the test can import it).
+  camera_platform_interface: ^2.9.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
