@@ -107,6 +107,24 @@ export function IconCamera({ size = 24 }: IconProps) {
   )
 }
 
+/** Portrait tile glyph (1×3 column layout). */
+export function IconPortrait({ size = 24 }: IconProps) {
+  return (
+    <Svg size={size}>
+      <rect x="9" y="4" width="6" height="16" rx="1.5" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+/** Landscape tile glyph (3×1 row layout). */
+export function IconLandscape({ size = 24 }: IconProps) {
+  return (
+    <Svg size={size}>
+      <rect x="4" y="9" width="16" height="6" rx="1.5" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
 /** Save / download. */
 export function IconSave({ size = 24 }: IconProps) {
   return (
