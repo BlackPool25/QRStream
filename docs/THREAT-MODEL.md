@@ -409,7 +409,7 @@ what leaves the device.
 **Evidence of safety:**
 
 - `getUserMedia` requests **video only**, rear `facingMode: 'environment'`
-  (src/receiver/camera.ts:58–69, 84); single prompt per origin; errors
+  (src/receiver/camera.ts:66–82, 92); single prompt per origin; errors
   normalized to typed `CameraError`s (89–91, 144–166).
 - Frames are processed **in memory only**: `drawImage` → `getImageData`
   (src/receiver/orchestrate.ts:151–152) → RGBA transferred to a decode worker
