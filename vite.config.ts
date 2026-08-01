@@ -56,6 +56,15 @@ export default defineConfig({
       },
     }),
   ],
+  // Custom domain fronted by cloudflared tunnel + nginx proxy: the Host header
+  // reaching Vite is the public domain, which is not on Vite's default
+  // allowlist — allow it explicitly for both the dev and preview servers.
+  server: {
+    allowedHosts: ['dev.shreyasjoshi.qzz.io'],
+  },
+  preview: {
+    allowedHosts: ['dev.shreyasjoshi.qzz.io'],
+  },
   test: {
     environment: 'node',
     include: ['tests/unit/**/*.test.ts', 'src/**/*.test.ts', 'tests/soak/**/*.test.ts'],
