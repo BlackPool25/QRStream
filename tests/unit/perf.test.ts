@@ -14,12 +14,13 @@ import { decodeImageData, prepareDecodeModule, type RgbaBuffer } from '../../src
 import { DecodePool, type DecodeRequest, type DecodeWorkerResponse } from '../../src/receiver/pool'
 import { downsampleTarget } from '../../src/receiver/stats'
 import { encodeQrBytes, type QrMatrix } from '../../src/qr/encode'
-import { MIN_QUIET_ZONE, renderGrid, renderSingle } from '../../src/qr/render'
+import { MIN_QUIET_ZONE, renderGrid, renderSingle, renderTiles } from '../../src/qr/render'
 import {
   DEFAULT_OVERHEAD_FACTOR,
   MIN_FPS,
   adaptFps,
   computeFrameDelayMs,
+  computeLayoutGeometry,
   renderBudgetOk,
   resolvePacing,
 } from '../../src/sender/pacing'
@@ -185,6 +186,45 @@ describe('perf: QR render cost (16ms display-refresh budget)', () => {
   it('renderSingle V40 at 4px/module on a 1600px canvas stays under 16ms', () => {
     const t = timeAvg(() => renderSingle(m40, opts), 25)
     log(`renderSingle V40 @4ppm/1600px avg=${t.avgMs.toFixed(2)}ms max=${t.maxMs.toFixed(2)}ms`)
+    expect(t.avgMs).toBeLessThan(16)
+  })
+
+  it('renderTiles 9xV27 (grid9) at 4px/module on an 1800px canvas stays under 16ms', () => {
+    const t = timeAvg(
+      () =>
+        renderTiles(Array(9).fill(m27), {
+          cols: 3,
+          rows: 3,
+          modules: 4,
+          quietZone: MIN_QUIET_ZONE,
+          canvasWidth: 1800,
+          canvasHeight: 1800,
+        }),
+      25,
+    )
+    log(
+      `renderTiles 9xV27 (grid9) @4ppm/1800px avg=${t.avgMs.toFixed(2)}ms max=${t.maxMs.toFixed(2)}ms`,
+    )
+    expect(t.avgMs).toBeLessThan(16)
+  })
+
+  it('renderTiles 3xV40 (column3) on a portrait 1400x2600 canvas stays under 16ms', () => {
+    const ppm = computeLayoutGeometry(1400, 2600, 'column3', 40).ppm
+    const t = timeAvg(
+      () =>
+        renderTiles(Array(3).fill(m40), {
+          cols: 1,
+          rows: 3,
+          modules: ppm,
+          quietZone: MIN_QUIET_ZONE,
+          canvasWidth: 1400,
+          canvasHeight: 2600,
+        }),
+      25,
+    )
+    log(
+      `renderTiles 3xV40 (column3) @${ppm}ppm/1400x2600 avg=${t.avgMs.toFixed(2)}ms max=${t.maxMs.toFixed(2)}ms`,
+    )
     expect(t.avgMs).toBeLessThan(16)
   })
 })

@@ -12,8 +12,6 @@ interface SenderBroadcastProps {
   readonly onStop: () => void
 }
 
-const DEFAULT_FPS = 15
-
 /** The live QR broadcast: display canvas, status chips and transport controls. */
 export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
   const stats = useSignal<SenderStats | undefined>(undefined)
@@ -35,8 +33,7 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
     const display = new SenderDisplay({
       canvas,
       prepared,
-      profile: prepared.info.profile,
-      targetFps: DEFAULT_FPS,
+      settings: prepared.info.settings,
       onStats: (s) => {
         stats.value = s
       },

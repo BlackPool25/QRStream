@@ -20,7 +20,6 @@ import {
   METADATA_REBROADCAST_EVERY,
   META_MAGIC,
   PROFILE_GRID,
-  PROFILE_V40,
   PROTO_VERSION,
   SESSION_ID_LEN,
   TYPE_DATA,
@@ -284,15 +283,6 @@ describe('constants', () => {
       mtu: 1028,
       chunkSize: 1004,
       frameBudget: 1465,
-    })
-    expect(PROFILE_V40).toEqual({
-      tiles: [1, 1],
-      version: 40,
-      ecc: 'L',
-      symbolSize: 2048,
-      mtu: 2052,
-      chunkSize: 2044,
-      frameBudget: 2953,
     })
   })
 

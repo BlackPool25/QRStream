@@ -58,17 +58,6 @@ export const PROFILE_GRID: Profile = {
   frameBudget: 1465,
 }
 
-/** Single large QR profile (version 40, ~2KB symbols). */
-export const PROFILE_V40: Profile = {
-  tiles: [1, 1],
-  version: 40,
-  ecc: 'L',
-  symbolSize: 2048,
-  mtu: 2052,
-  chunkSize: 2044,
-  frameBudget: 2953,
-}
-
 export type BytesPerTileId = '1k' | '2k' | '2.5k'
 
 export interface BytesPerTileProfile {

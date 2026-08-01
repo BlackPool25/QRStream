@@ -8,27 +8,34 @@
  * CRC32C), not the decoded RaptorQ payload: the receiver reads each QR with
  * zxing and feeds exactly those bytes to FrameBuffer.feed → decodeFrame, so
  * encoding anything less would make every QR undecodable on the receive side.
- * The pipeline's frames already fit their profile's QR capacity (V27-L fits
- * 1465 B vs a ~1058 B grid frame; V40-L fits 2953 B vs a ~2078 B frame), so
+ * The pipeline's frames already fit their bytes-per-tile QR capacity, so
  * encodeQrBytes only throws on an integration bug — which the loop converts
  * into a skipped tile + dropped-tick count.
  *
- * The canvas backing store is sized to the display resolution (device pixels)
- * and CSS-scaled to the viewport, so every module lands on an integer number
- * of physical pixels — crisp in the camera's view, with no smoothing.
+ * Geometry is layout-aware: the settings' layout (single/column3/row3/grid4/
+ * grid9) divides the full canvas into cols×rows cells sized by
+ * {@link computeLayoutGeometry}, and the canvas backing store is sized to the
+ * display resolution (device pixels) and CSS-scaled to the viewport, so every
+ * module lands on an integer number of physical pixels.
  */
 
-import { METADATA_REBROADCAST_EVERY, PROFILE_GRID, PROFILE_V40 } from '../protocol/constants'
-import { encodeQrBytes, type QrMatrix } from '../qr/encode'
-import { MIN_QUIET_ZONE, renderGrid, renderSingle } from '../qr/render'
-import { computePxPerModule, releaseWakeLock, requestWakeLock } from './controls'
 import {
-  GRID_MAX_FPS,
-  V40_MAX_FPS,
+  BYTES_PER_TILE,
+  LAYOUTS,
+  METADATA_REBROADCAST_EVERY,
+  type LayoutId,
+  type TransferSettings,
+} from '../protocol/constants'
+import { encodeQrBytes, type QrMatrix } from '../qr/encode'
+import { MIN_QUIET_ZONE, renderTiles } from '../qr/render'
+import { releaseWakeLock, requestWakeLock } from './controls'
+import {
   FramePool,
   adaptFps,
   computeFrameDelayMs,
+  computeLayoutGeometry,
   nextEsiRoundRobin,
+  resolvePacing,
   type DisplayFrame,
   type SenderStats,
 } from './pacing'
@@ -37,10 +44,8 @@ import type { PreparedTransfer } from './pipeline'
 export interface SenderDisplayOptions {
   readonly canvas: HTMLCanvasElement
   readonly prepared: PreparedTransfer
-  /** Must match prepared.info.profile — frames are sized for this profile's QR. */
-  readonly profile: 'grid' | 'v40'
-  /** Desired fps; clamped to the profile's ceiling (grid 24 / v40 12). */
-  readonly targetFps?: number
+  /** Must match prepared.info.settings.bytesPerTile — frames are sized for this symbol. */
+  readonly settings: TransferSettings
   /** Called every ~500ms with broadcast stats for the overlay. */
   readonly onStats?: (stats: SenderStats) => void
 }
@@ -49,7 +54,8 @@ export class SenderDisplay {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
   private readonly prepared: PreparedTransfer
-  private readonly profile: 'grid' | 'v40'
+  private readonly settings: TransferSettings
+  private readonly layout: LayoutId
   private readonly tilesPerFrame: number
   private readonly version: number
   private readonly quietZone = MIN_QUIET_ZONE
@@ -65,34 +71,37 @@ export class SenderDisplay {
   private lastStatsTime = 0
   private lastStatsTickCount = 0
   private lastFrame: DisplayFrame | undefined
-  private canvasSize = 0
   private ppm = 1
-  private dx = 0
-  private dy = 0
 
   constructor(opts: SenderDisplayOptions) {
     const ctx = opts.canvas.getContext('2d')
     if (ctx === null) {
       throw new Error('SenderDisplay: 2d canvas context unavailable')
     }
-    if (opts.profile !== opts.prepared.info.profile) {
+    if (opts.settings.bytesPerTile !== opts.prepared.info.settings.bytesPerTile) {
       throw new TypeError(
-        `SenderDisplay profile ${opts.profile} does not match prepared transfer ` +
-          `profile ${opts.prepared.info.profile}`,
+        `SenderDisplay bytesPerTile ${opts.settings.bytesPerTile} does not match prepared ` +
+          `transfer ${opts.prepared.info.settings.bytesPerTile}`,
       )
     }
     this.canvas = opts.canvas
     this.ctx = ctx
     this.prepared = opts.prepared
-    this.profile = opts.profile
+    this.settings = opts.settings
+    this.layout = opts.settings.layout
     this.pool = new FramePool(opts.prepared)
     this.onStats = opts.onStats
 
-    const profile = opts.profile === 'grid' ? PROFILE_GRID : PROFILE_V40
-    this.tilesPerFrame = profile.tiles[0] * profile.tiles[1]
-    this.version = profile.version
-    const profileMaxFps = opts.profile === 'grid' ? GRID_MAX_FPS : V40_MAX_FPS
-    this.currentFps = Math.min(opts.targetFps ?? profileMaxFps, profileMaxFps)
+    const bpt = BYTES_PER_TILE[this.settings.bytesPerTile]
+    this.version = bpt.version
+    this.tilesPerFrame = LAYOUTS[this.layout].cols * LAYOUTS[this.layout].rows
+    // effectiveFps is layout/canvas-size independent, so the pre-start canvas
+    // dims (defaults at construction) do not skew the initial pacing.
+    this.currentFps = resolvePacing(
+      this.settings,
+      this.canvas.width,
+      this.canvas.height,
+    ).effectiveFps
   }
 
   /** Begins the rAF broadcast loop. Idempotent. */
@@ -181,8 +190,8 @@ export class SenderDisplay {
 
   private renderFrame(frameIndex: number): void {
     // Every METADATA_REBROADCAST_EVERY ticks one data tile becomes the META
-    // frame so receivers joining mid-broadcast learn session + file metadata
-    // without the data stream ever pausing (grid: 1 meta + 3 data; v40: meta).
+    // frame (slot 0) so receivers joining mid-broadcast learn session + file
+    // metadata without the data stream ever pausing.
     const showMeta = frameIndex % METADATA_REBROADCAST_EVERY === 0
     const dataTiles = showMeta ? this.tilesPerFrame - 1 : this.tilesPerFrame
     const esis = nextEsiRoundRobin(this.pool.k, this.pool.repairAvailable, frameIndex, dataTiles)
@@ -195,31 +204,28 @@ export class SenderDisplay {
       tiles.push(this.encodeFrame(this.pool.frameBytes(esi)))
     }
 
-    const opts = {
+    const { cols, rows } = LAYOUTS[this.layout]
+    const imageData = renderTiles(tiles, {
+      cols,
+      rows,
       modules: this.ppm,
-      canvasSize: this.canvasSize,
       quietZone: this.quietZone,
-    }
-    let imageData: Uint8Array
-    if (this.profile === 'grid') {
-      imageData = renderGrid(tiles, opts)
-    } else {
-      const tile = tiles[0] ?? null
-      imageData =
-        tile === null
-          ? new Uint8Array(this.canvasSize * this.canvasSize * 4) // failed tile → black
-          : renderSingle(tile, opts)
-    }
+      canvasWidth: this.canvas.width,
+      canvasHeight: this.canvas.height,
+    })
 
-    this.ctx.fillStyle = '#000000'
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
-    // renderGrid/renderSingle always allocate a fresh ArrayBuffer, so narrowing
-    // the buffer type is safe; the clamped view is zero-copy over the same bytes.
+    // renderTiles allocates a fresh ArrayBuffer and fully covers the canvas,
+    // so the clamped view is zero-copy over the same bytes — non-square is fine.
     const buffer = imageData.buffer as ArrayBuffer
     const rgba = new Uint8ClampedArray(buffer, imageData.byteOffset, imageData.byteLength)
-    this.ctx.putImageData(new ImageData(rgba, this.canvasSize, this.canvasSize), this.dx, this.dy)
+    this.ctx.putImageData(new ImageData(rgba, this.canvas.width, this.canvas.height), 0, 0)
 
-    this.lastFrame = { imageData, canvasSize: this.canvasSize, frameIndex, esis }
+    this.lastFrame = {
+      imageData,
+      canvasSize: Math.min(this.canvas.width, this.canvas.height),
+      frameIndex,
+      esis,
+    }
   }
 
   private encodeFrame(frameBytes: Uint8Array | undefined): QrMatrix | null {
@@ -249,7 +255,7 @@ export class SenderDisplay {
         this.renderedTicks > 0
           ? Math.round(((now - this.startTime) / this.renderedTicks) * 10) / 10
           : 0,
-      layout: this.profile === 'grid' ? 'grid4' : 'single',
+      layout: this.layout,
       k: this.pool.k,
     })
     this.lastStatsTime = now
@@ -263,15 +269,14 @@ export class SenderDisplay {
     this.canvas.height = Math.round(window.innerHeight * dpr)
   }
 
-  /** Square QR area = min(backing side); grid tiles share quadrants, V40 fills it. */
+  /** Layout cells split the full canvas; ppm keeps every module at integer px. */
   private updateGeometry(): void {
-    this.canvasSize = Math.min(this.canvas.width, this.canvas.height)
-    this.ppm = computePxPerModule(
-      this.profile === 'grid' ? Math.floor(this.canvasSize / 2) : this.canvasSize,
+    this.ppm = computeLayoutGeometry(
+      this.canvas.width,
+      this.canvas.height,
+      this.layout,
       this.version,
       this.quietZone,
-    )
-    this.dx = Math.floor((this.canvas.width - this.canvasSize) / 2)
-    this.dy = Math.floor((this.canvas.height - this.canvasSize) / 2)
+    ).ppm
   }
 }
