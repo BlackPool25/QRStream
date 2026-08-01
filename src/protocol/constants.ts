@@ -68,3 +68,44 @@ export const PROFILE_V40: Profile = {
   chunkSize: 2044,
   frameBudget: 2953,
 }
+
+export type BytesPerTileId = '1k' | '2k' | '2.5k'
+
+export interface BytesPerTileProfile {
+  version: number
+  symbolSize: number
+  mtu: number
+  chunkSize: number
+  frameBudget: number
+}
+
+// Wire-fit sanity: each mtu = symbolSize + 4 (RaptorQ symbol = mtu − 4); each frame is
+// 30 (header) + symbolSize + 4 (CRC) and must fit the QR version's Ecc.LOW byte capacity
+// (V27-L=1465, V33-L=2140, V40-L=2953). Rows verify: 1058/2082/2594 ≤ budgets.
+export const BYTES_PER_TILE: Readonly<Record<BytesPerTileId, BytesPerTileProfile>> = {
+  '1k': { version: 27, symbolSize: 1024, mtu: 1028, chunkSize: 1004, frameBudget: 1465 },
+  '2k': { version: 33, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2140 },
+  '2.5k': { version: 40, symbolSize: 2560, mtu: 2564, chunkSize: 2540, frameBudget: 2953 },
+}
+
+export type LayoutId = 'single' | 'column3' | 'row3' | 'grid4' | 'grid9'
+
+export interface Layout {
+  cols: number
+  rows: number
+}
+
+export const LAYOUTS: Readonly<Record<LayoutId, Layout>> = {
+  single: { cols: 1, rows: 1 },
+  column3: { cols: 1, rows: 3 },
+  row3: { cols: 3, rows: 1 },
+  grid4: { cols: 2, rows: 2 },
+  grid9: { cols: 3, rows: 3 },
+}
+
+export interface TransferSettings {
+  bytesPerTile: BytesPerTileId
+  layout: LayoutId
+  targetFps: number
+  highRefresh: boolean
+}

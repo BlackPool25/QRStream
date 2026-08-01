@@ -10,9 +10,11 @@ import {
 import { buildMetadataFrame, parseMetadataFrame, type Metadata } from '../../src/protocol/metadata'
 import { sha256Hex } from '../../src/protocol/sha256'
 import {
+  BYTES_PER_TILE,
   CRC_LEN,
   FLAG_COMPRESSED,
   HEADER_LEN,
+  LAYOUTS,
   MAGIC_QRDF,
   MAX_TOTAL_LEN,
   METADATA_REBROADCAST_EVERY,
@@ -23,6 +25,7 @@ import {
   SESSION_ID_LEN,
   TYPE_DATA,
   TYPE_META,
+  type BytesPerTileId,
 } from '../../src/protocol/constants'
 
 const utf8 = (s: string): Uint8Array<ArrayBuffer> =>
@@ -292,4 +295,45 @@ describe('constants', () => {
       frameBudget: 2953,
     })
   })
+
+  it('pins BYTES_PER_TILE to the spec', () => {
+    expect(BYTES_PER_TILE).toEqual({
+      '1k': { version: 27, symbolSize: 1024, mtu: 1028, chunkSize: 1004, frameBudget: 1465 },
+      '2k': { version: 33, symbolSize: 2048, mtu: 2052, chunkSize: 2028, frameBudget: 2140 },
+      '2.5k': { version: 40, symbolSize: 2560, mtu: 2564, chunkSize: 2540, frameBudget: 2953 },
+    })
+  })
+
+  it('pins LAYOUTS to the spec', () => {
+    expect(LAYOUTS).toEqual({
+      single: { cols: 1, rows: 1 },
+      column3: { cols: 1, rows: 3 },
+      row3: { cols: 3, rows: 1 },
+      grid4: { cols: 2, rows: 2 },
+      grid9: { cols: 3, rows: 3 },
+    })
+  })
+
+  it('every bytes-per-tile profile fits its wire frame within the QR frame budget', () => {
+    for (const p of Object.values(BYTES_PER_TILE)) {
+      expect(p.mtu).toBe(p.symbolSize + 4)
+      expect(HEADER_LEN + p.symbolSize + CRC_LEN).toBeLessThanOrEqual(p.frameBudget)
+    }
+  })
+
+  const TILE_CAPACITY: Array<readonly [BytesPerTileId, number, number]> = [
+    ['1k', 27, 1465],
+    ['2k', 33, 2140],
+    ['2.5k', 40, 2953],
+  ]
+
+  it.each(TILE_CAPACITY)(
+    'profile %s uses version %d whose Ecc.LOW capacity %d bounds its wire frame',
+    (id, version, capacity) => {
+      const p = BYTES_PER_TILE[id]
+      expect(p.version).toBe(version)
+      expect(p.frameBudget).toBe(capacity)
+      expect(HEADER_LEN + p.symbolSize + CRC_LEN).toBeLessThanOrEqual(capacity)
+    },
+  )
 })
