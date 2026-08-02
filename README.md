@@ -24,6 +24,7 @@ reassembles itself — RaptorQ fountain codec, SHA-256 verified, fully offline.
   <br>
   <a href="https://github.com/BlackPool25/QRStream/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/BlackPool25/QRStream/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/BlackPool25/QRStream/releases"><img alt="Release" src="https://img.shields.io/github/v/release/BlackPool25/QRStream?style=flat&labelColor=1C2C2E&color=C96329&logo=GitHub&logoColor=white"></a>
+  <a href="https://github.com/BlackPool25/QRStream/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/BlackPool25/QRStream/total?style=flat&labelColor=1C2C2E&color=4C9A2F&logo=GitHub&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -31,60 +32,103 @@ reassembles itself — RaptorQ fountain codec, SHA-256 verified, fully offline.
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> · <a href="#quick-start">Quick start</a> · <a href="#how-it-works">How it works</a> · <a href="#honest-throughput">Honest throughput</a> · <a href="#platforms">Platforms</a> · <a href="#documentation">Docs</a> · <a href="#contributing">Contributing</a> · <a href="#license">License</a>
+  <a href="#install">Install</a> · <a href="#demo">Demo</a> · <a href="#features">Features</a> · <a href="#customising-a-broadcast">Customising a broadcast</a> · <a href="#how-it-works">How it works</a> · <a href="#honest-throughput">Honest throughput</a> · <a href="#documentation">Docs</a> · <a href="#contributing">Contributing</a> · <a href="#license">License</a>
 </p>
 
 ---
 
-![A QRStream transfer in progress](docs/screenshots/transfer-demo.gif)
+## Demo
+
+The QR grid you point your camera at — live, cycling:
+
+![A QRStream broadcast — the QR grid cycling](docs/screenshots/qr-cycling.gif)
 
 QRStream is two apps that speak the same wire protocol:
 
-- **The Flutter app** (Linux desktop + Android) — the flagship. Broadcast from
-  either platform, receive on Android.
+- **The Flutter app** (Linux desktop, Android, Windows) — the flagship. Real
+  native UI, real window fullscreen, native ZXing-C++ decoding.
 - **The PWA** (any modern browser) — the zero-install demo and interop
   reference. Visually and wire-compatible with the Flutter app.
 
-## Features
+### The Flutter app
 
-- **Zero network.** The transfer path never touches a socket. Both devices can
-  be in airplane mode after first load.
-- **No pairing, no handshake.** Point a camera at the screen and it just
-  works — a receiver can join mid-broadcast.
-- **No data loss.** Every frame is CRC-32C checked, erasures are repaired by a
-  RaptorQ fountain codec, and the reassembled file is SHA-256 verified before
-  it is ever offered for saving. A mismatch is surfaced, never silently saved.
-- **No encryption — deliberately.** Same-room visual broadcast; anything the
-  camera can see can be read. See the [threat model](docs/THREAT-MODEL.md).
-- **Tunable throughput.** Display fps (12–30), bytes per tile (1/2/2.5 KB) and
-  tile layout (1×1 → 3×3, including 1×2/2×1 dual lanes) trade speed against how
-  much the camera has to resolve — with a live speed/ETA estimate.
-- **Everything on device.** The sender and receiver never contact a server;
-  after the first load, the PWA works fully offline too.
+<p align="center">
+  <img alt="QRStream Flutter app shell" src="flutter_app/docs/screenshots/flutter-shell.png" width="49%">
+  <img alt="QRStream broadcast — 2×2 QR grid on the dark stage" src="flutter_app/docs/screenshots/flutter-broadcast.png" width="49%">
+</p>
 
-## Quick start
+<p align="center">
+  <img alt="QRStream send-flow settings panel" src="flutter_app/docs/screenshots/flutter-settings.png" width="60%">
+</p>
 
-### Flutter app (Linux / Android)
+### Receiving
+
+<p align="center">
+  <img alt="Receiver mid-transfer with live stats" src="docs/screenshots/receive-transferring.png" width="49%">
+  <img alt="Verified completion" src="docs/screenshots/receive-verified.png" width="38%">
+</p>
+
+## Install
+
+### Linux (recommended: one line)
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/BlackPool25/QRStream/main/install.sh | bash
+```
+
+Installs the latest release to `~/.local/share/qrstream`, registers a launcher
+
+- icon, and puts a `qrstream` command on your PATH. No root needed. Verifies
+  the download against the release checksums. Uninstall:
+
+```bash
+rm -rf ~/.local/share/qrstream ~/.local/bin/qrstream \
+       ~/.local/share/applications/qrstream.desktop \
+       ~/.local/share/icons/hicolor/256x256/apps/qrstream.png
+```
+
+Fedora/RHEL users can also `sudo dnf install ./qrstream-*.rpm` from the
+[release page](https://github.com/BlackPool25/QRStream/releases).
+
+### Android
+
+Grab `app-release.apk` from the [latest release](https://github.com/BlackPool25/QRStream/releases/latest)
+and sideload it (Settings → Security → install unknown apps).
+
+### Windows
+
+The native Flutter app ships for Windows too (send; receive needs a camera and
+is Android-only). Download `qrstream-windows-x64.zip` from the
+[latest release](https://github.com/BlackPool25/QRStream/releases/latest),
+unzip, and run `qr_data_transfer.exe`.
+
+No install needed at all? The **PWA** runs in any modern browser (Chrome/Edge
+can install it as an app) — open it on the [deployed demo](https://github.com/BlackPool25/QRStream)
+and it works fully offline after first load.
+
+### All downloads
+
+Every release ships the Android APK, the Linux tarball, the Fedora/RHEL RPM,
+the Windows zip, and a `SHA256SUMS` checksum file:
+
+[**Download QRStream on GitHub Releases →**](https://github.com/BlackPool25/QRStream/releases)
+
+## Quick start (from source)
+
+```bash
+# Flutter app (Linux/Android/Windows)
 cd flutter_app
 flutter pub get
-flutter run -d linux        # or -d <android-device>
-```
+flutter run -d linux          # or -d <android-device>, or -d windows
 
-The Android APK bundles the native RaptorQ codec; see
-[`flutter_app/README.md`](flutter_app/README.md) for the full build —
-scaffolding, the Rust codec, icon generation and the version-lock contract.
-
-### PWA (the web demo)
-
-```bash
+# PWA (the web demo)
 npm install
-npm run dev                 # localhost — camera + PWA features need a secure context
+npm run dev                   # localhost — camera needs a secure context
 ```
 
-Or deploy `npm run build` output to any static host. The PWA works fully
-offline after the first load.
+For the full build — platform scaffolding, the Rust codec, icon generation and
+the flutter_rust_bridge version-lock contract — see
+[`flutter_app/README.md`](flutter_app/README.md).
 
 ### Try it
 
@@ -97,14 +141,57 @@ offline after the first load.
 
 ![Broadcasting a 2×2 QR grid](docs/screenshots/hero-broadcast.png)
 
-### In action
+## Features
 
-<p align="center">
-  <img alt="Receiver mid-transfer with live stats" src="docs/screenshots/receive-transferring.png" width="49%">
-  <img alt="Verified completion" src="docs/screenshots/receive-verified.png" width="38%">
-</p>
+- **Zero network.** The transfer path never touches a socket. Both devices can
+  be in airplane mode after first load.
+- **No pairing, no handshake.** Point a camera at the screen and it just
+  works — a receiver can join mid-broadcast.
+- **No data loss.** Every frame is CRC-32C checked, erasures are repaired by a
+  RaptorQ fountain codec, and the reassembled file is SHA-256 verified before
+  it is ever offered for saving. A mismatch is surfaced, never silently saved.
+- **No encryption — deliberately.** Same-room visual broadcast; anything the
+  camera can see can be read. See the [threat model](docs/THREAT-MODEL.md).
+- **Tunable throughput.** Display fps, bytes per tile, and tile layout trade
+  speed against how much the camera has to resolve — with a live speed/ETA
+  estimate (see [Customising a broadcast](#customising-a-broadcast)).
+- **Everything on device.** The sender and receiver never contact a server;
+  after the first load, the PWA works fully offline too.
+
+## Customising a broadcast
+
+The settings panel (send flow) trades **rate against camera resolution** — more
+data per tick means each QR is denser and needs a sharper, steadier view:
+
+| Setting               | Options                           | What it does                                                                                                                                                                                       |
+| --------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Display fps**       | 12 / 15 / 24 / 30                 | The broadcast cadence. 30 needs a 90 Hz+ display (the high-refresh toggle); on 60 Hz even 15 renders at a measured ~12 fps.                                                                        |
+| **Bytes per tile**    | 1 / 2 / 2.5 KB                    | The QR symbol size (V27 / V34 / V40). Bigger tiles carry more data per QR but need a sharper view.                                                                                                 |
+| **Tile layout**       | 1×1, 2×1, 1×2, 3×1, 1×3, 2×2, 3×3 | Tiles per frame (rows × columns). More tiles = more data per tick, each smaller on screen. Portrait phones get a column (1×3) suggested; landscape a row (3×1) or 2×2; 3×3 only on large canvases. |
+| **High refresh rate** | on / off                          | Auto-on at 90/120 Hz; the gate for 30 fps.                                                                                                                                                         |
+
+The panel shows a live **expected speed** (`~KB/s · ~ETA`) for your selection —
+a guide, not a promise: the real rate depends on screen brightness, how close
+and steady the receiver is, and the px/module the camera actually sees.
+
+Per-file settings live in the send flow; a **Settings** tab persists your
+defaults. Changing bytes-per-tile re-encodes the file (it changes the QR tile
+size); changing fps/layout alone does not.
 
 ## How it works
+
+```mermaid
+flowchart LR
+    A[Sender app] -->|file| B[Compress + RaptorQ encode\nK source symbols]
+    B --> C[QR grid on screen\ncycling at 12-30 fps]
+    C -->|camera| D[Receiver: ZXing decode]
+    D --> E[FrameBuffer: dedup by esi]
+    E --> F[RaptorQ decoder\nany K of K+repair]
+    F --> G[Inflate + SHA-256 verify]
+    G --> H[Save file]
+    style C fill:#161312,stroke:#6D4C41,color:#f5ebc8
+    style F fill:#161312,stroke:#6D4C41,color:#f5ebc8
+```
 
 The sender compresses and fountain-encodes the file into K symbols, then
 broadcasts them as an endless cycling grid of QR codes (metadata is re-emitted
@@ -135,28 +222,26 @@ grid at 1 KB tiles runs at a measured 12 fps on a 60 Hz display → ~48 symbols/
 transfer in a couple of minutes; the wire format caps a single transfer at
 **16 MiB**.
 
-## Platforms
-
-| Surface                             | Support                                                      |
-| ----------------------------------- | ------------------------------------------------------------ |
-| Flutter — Android                   | Send + receive (arm64; camera decode via ML Kit + ZXing-C++) |
-| Flutter — Linux desktop             | Send (fullscreen broadcast); receive is Android-only         |
-| PWA — Chrome/Edge desktop + Android | Full (camera, file picker, wake lock, PWA install)           |
-| PWA — Safari/iOS ≥ 15.4             | Works (ZXing-WASM decode; HTTPS + user gesture required)     |
-| PWA — Firefox                       | Works (wake lock behind flags on some versions)              |
-
-The measured device/camera matrix lives in [docs/DEVICE-MATRIX.md](docs/DEVICE-MATRIX.md).
-
 ## Project structure
 
-```
-flutter_app/        Flutter app (main product) — UI, pure-Dart core, Rust codec
-  core/             wire protocol, RaptorQ FFI facade, sender/receiver logic
-  rust/             RaptorQ + ZXing-C++ FFI (flutter_rust_bridge 2.12.0)
-src/                PWA (the web demo / interop reference)
-tests/              PWA unit + soak + Playwright e2e (virtual camera)
-docs/               architecture, performance, device matrix, threat model, ADRs
-packaging/          Linux install script + Fedora/RHEL RPM spec
+```mermaid
+flowchart TD
+    subgraph Flutter app
+        UI[lib/ — shell, send, broadcast,\nsettings, receive views]
+        CORE[core/ — protocol, codec,\nsender/receiver logic]
+        RUST[rust/ — RaptorQ + ZXing-C++ FFI\nflutter_rust_bridge 2.12.0]
+        UI --> CORE
+        CORE --> RUST
+    end
+    subgraph PWA
+        SRC[src/ — React/Preact UI, pipeline,\nreceiver, QR render]
+        TESTS[tests/ — unit, soak,\nPlaywright e2e]
+    end
+    CORE -. wire-compatible .-> SRC
+    DOCS[docs/ — architecture, perf,\ndevice matrix, threat model]
+    PKG[packaging/ — install.sh, RPM]
+    style Flutter app fill:#161312,stroke:#6D4C41,color:#f5ebc8
+    style PWA fill:#0f1115,stroke:#4f8cff,color:#e6e8eb
 ```
 
 ## Documentation

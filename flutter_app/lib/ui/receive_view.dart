@@ -67,7 +67,7 @@ class ReceiveView extends StatefulWidget {
 }
 
 class _ReceiveViewState extends State<ReceiveView> {
-  bool get _linux => widget.linuxOnly ?? Platform.isLinux;
+  bool get _linux => widget.linuxOnly ?? !Platform.isAndroid;
   late final CameraService _camera =
       widget.cameraService ?? PluginCameraService();
   late final Saver _saver = widget.saver ?? Saver();

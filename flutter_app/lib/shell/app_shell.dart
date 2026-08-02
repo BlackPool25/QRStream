@@ -51,7 +51,7 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  late final bool _linuxOnly = widget.linuxOnly ?? Platform.isLinux;
+  late final bool _linuxOnly = widget.linuxOnly ?? !Platform.isAndroid;
 
   int _index = 0;
 
