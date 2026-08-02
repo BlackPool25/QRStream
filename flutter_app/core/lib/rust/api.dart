@@ -6,6 +6,11 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+/// Decodes every QR in a grayscale luma frame (tight, row-major, 1 byte/px).
+/// Returns the decoded payload bytes of every QR found; empty when none.
+List<Uint8List> decodeQrBarcodes({required List<int> luma, required int width, required int height}) =>
+    RustLib.instance.api.crateApiDecodeQrBarcodes(luma: luma, width: width, height: height);
+
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RaptorqDecoder>>
 abstract class RaptorqDecoder implements RustOpaqueInterface {
   /// Feeds one serialized encoding packet. Returns the full decoded file once

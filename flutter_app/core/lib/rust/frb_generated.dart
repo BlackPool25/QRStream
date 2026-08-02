@@ -60,7 +60,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1593672741;
+  int get rustContentHash => -1574339308;
 
   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
     stem: 'qr_transfer_rust',
@@ -84,6 +84,8 @@ abstract class RustLibApi extends BaseApi {
   BigInt crateApiRaptorqEncoderSymbolSize({required RaptorqEncoder that});
 
   RaptorqEncoder crateApiRaptorqEncoderWithDefaults({required List<int> data, required int mtu});
+
+  List<Uint8List> crateApiDecodeQrBarcodes({required List<int> luma, required int width, required int height});
 
   RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqDecoder;
 
@@ -273,6 +275,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiRaptorqEncoderWithDefaultsConstMeta =>
       const TaskConstMeta(debugName: "RaptorqEncoder_with_defaults", argNames: ["data", "mtu"]);
 
+  @override
+  List<Uint8List> crateApiDecodeQrBarcodes({required List<int> luma, required int width, required int height}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(luma, serializer);
+          sse_encode_u_32(width, serializer);
+          sse_encode_u_32(height, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_list_list_prim_u_8_strict, decodeErrorData: sse_decode_String),
+        constMeta: kCrateApiDecodeQrBarcodesConstMeta,
+        argValues: [luma, width, height],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDecodeQrBarcodesConstMeta =>
+      const TaskConstMeta(debugName: "decode_qr_barcodes", argNames: ["luma", "width", "height"]);
+
   RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_RaptorqDecoder =>
       wire.rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRaptorqDecoder;
 
@@ -369,6 +393,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
+  int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
   }
@@ -501,6 +531,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint16();
+  }
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint32();
   }
 
   @protected
@@ -644,6 +680,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_u_16(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint16(self);
+  }
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint32(self);
   }
 
   @protected
