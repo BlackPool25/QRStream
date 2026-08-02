@@ -35,6 +35,21 @@ void main() {
       expect(suggestLayout(800, 1000), LayoutId.grid4); // aspect exactly 0.8
       expect(suggestLayout(1250, 1000), LayoutId.grid4); // aspect exactly 1.25
     });
+
+    test('small portrait maps to column2 below the column2 threshold', () {
+      expect(
+        suggestLayout(400, 800),
+        LayoutId.column2,
+      ); // aspect 0.5, minSide 400
+      expect(suggestLayout(479, 958), LayoutId.column2); // minSide 479 < 480
+      expect(suggestLayout(480, 960), LayoutId.column3); // boundary: column3
+    });
+
+    test('small landscape maps to row2 below the row2 threshold', () {
+      expect(suggestLayout(800, 400), LayoutId.row2); // aspect 2.0, minSide 400
+      expect(suggestLayout(958, 479), LayoutId.row2); // minSide 479 < 480
+      expect(suggestLayout(960, 480), LayoutId.row3); // boundary: row3
+    });
   });
 
   group('resolvePacing', () {
@@ -206,6 +221,156 @@ void main() {
 
     test('empty pool yields no esis', () {
       expect(nextEsiRoundRobin(0, 0, 0, tilesPerFrame), isEmpty);
+    });
+  });
+
+  group('dual-lane schedule', () {
+    const k = 50;
+    const repairAvailable = 100;
+    final poolSize = k + repairAvailable; // 150
+
+    List<int> at(int tick) => nextEsiDualLane(k, repairAvailable, tick);
+
+    test('isDualLaneLayout identifies only the two 2-tile layouts', () {
+      expect(isDualLaneLayout(LayoutId.row2), isTrue);
+      expect(isDualLaneLayout(LayoutId.column2), isTrue);
+      expect(isDualLaneLayout(LayoutId.single), isFalse);
+      expect(isDualLaneLayout(LayoutId.column3), isFalse);
+      expect(isDualLaneLayout(LayoutId.row3), isFalse);
+      expect(isDualLaneLayout(LayoutId.grid4), isFalse);
+      expect(isDualLaneLayout(LayoutId.grid9), isFalse);
+    });
+
+    test('layoutMaxFps caps row2 and column2 at 30', () {
+      expect(layoutMaxFps[LayoutId.row2], 30);
+      expect(layoutMaxFps[LayoutId.column2], 30);
+    });
+
+    test('pins the first six ticks exactly', () {
+      final half = poolSize ~/ 2;
+      expect(at(0), [0, half]);
+      expect(at(1), [0, half + 1]);
+      expect(at(2), [1, half + 1]);
+      expect(at(3), [1, half + 2]);
+      expect(at(4), [2, half + 2]);
+      expect(at(5), [2, half + 3]);
+    });
+
+    test('lane0 holds even→odd and advances on even ticks', () {
+      final t0 = at(0);
+      final t1 = at(1);
+      final t2 = at(2);
+      expect(t0[0], t1[0]); // holds 0 -> 1
+      expect(t1[0], isNot(t2[0])); // advances on even tick 2
+    });
+
+    test('lane1 advances on odd ticks and holds odd→even', () {
+      final t0 = at(0);
+      final t1 = at(1);
+      final t2 = at(2);
+      expect(t0[1], isNot(t1[1])); // advances on odd tick 0 -> 1
+      expect(t1[1], t2[1]); // holds 1 -> 2
+    });
+
+    test('each lane holds its esi exactly 2 ticks', () {
+      for (var tick = 0; tick < 2 * poolSize; tick++) {
+        final a = at(tick);
+        final b = at(tick + 1);
+        expect(
+          a[0] == b[0],
+          tick.isEven,
+          reason: 'lane0 must hold on even ticks, got tick $tick',
+        );
+        expect(
+          a[1] == b[1],
+          tick.isOdd,
+          reason: 'lane1 must hold on odd ticks, got tick $tick',
+        );
+      }
+    });
+
+    test('each lane covers every esi once over a cycle (no repeats)', () {
+      for (var lane = 0; lane < 2; lane++) {
+        final seen = <int>{};
+        for (var tick = 0; tick < 2 * poolSize; tick++) {
+          seen.add(at(tick)[lane]);
+        }
+        expect(
+          seen,
+          hasLength(poolSize),
+          reason: 'lane $lane must visit all $poolSize esis over a cycle',
+        );
+      }
+    });
+
+    test('lanes are cross-distinct on every tick (even pool)', () {
+      for (var tick = 0; tick < 2 * poolSize; tick++) {
+        final esis = at(tick);
+        expect(esis[0], isNot(esis[1]), reason: 'tick $tick');
+      }
+    });
+
+    test('lanes stay cross-distinct with an odd pool size', () {
+      const kOdd = 51;
+      const rOdd = 100;
+      final pOdd = kOdd + rOdd; // 151 — the P~/2 phase offset still separates
+      for (var tick = 0; tick < 2 * pOdd; tick++) {
+        final esis = nextEsiDualLane(kOdd, rOdd, tick);
+        expect(esis[0], isNot(esis[1]), reason: 'odd pool tick $tick');
+      }
+    });
+
+    test('reaches repair esis and wraps to 0 over a cycle', () {
+      final seen = <int>{};
+      for (var tick = 0; tick < 2 * poolSize; tick++) {
+        seen.addAll(at(tick));
+      }
+      expect(seen.any((esi) => esi >= k), isTrue);
+      // lane0 wraps back to 0 after exactly poolSize holds; lane1 returns to
+      // its tick-0 value one full cycle later.
+      expect(at(2 * poolSize)[0], 0);
+      expect(at(2 * poolSize)[1], at(0)[1]);
+    });
+
+    test('is deterministic: same inputs always give the same esis', () {
+      for (var tick = 0; tick < 20; tick++) {
+        expect(at(tick), at(tick));
+      }
+    });
+
+    test('empty pool yields no esis', () {
+      expect(nextEsiDualLane(0, 0, 0), isEmpty);
+    });
+  });
+
+  group('symbolsPerTickFor', () {
+    test('dual-lane is 1 - 1/32; other layouts are tilesPerFrame - 1/32', () {
+      final dataPerTick = 1 - 1 / 32;
+      expect(symbolsPerTickFor(LayoutId.row2), closeTo(dataPerTick, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.column2), closeTo(dataPerTick, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.single), closeTo(dataPerTick, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.column3), closeTo(3 - 1 / 32, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.row3), closeTo(3 - 1 / 32, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.grid4), closeTo(4 - 1 / 32, 1e-9));
+      expect(symbolsPerTickFor(LayoutId.grid9), closeTo(9 - 1 / 32, 1e-9));
+    });
+  });
+
+  group('estimateThroughput dual-lane', () {
+    test('row2 == single == column2 for equal fps and bytes', () {
+      TransferSettings s(LayoutId layout) => TransferSettings(
+        bytesPerTile: BytesPerTileId.oneK,
+        layout: layout,
+        targetFps: 15,
+        highRefresh: false,
+      );
+      final single = estimateThroughput(s(LayoutId.single));
+      final row2 = estimateThroughput(s(LayoutId.row2));
+      final column2 = estimateThroughput(s(LayoutId.column2));
+      expect(row2, single);
+      expect(column2, single);
+      // 2 tiles at half rate = 1 symbol/tick = same as a single tile.
+      expect(row2, closeTo(15 * (1 - 1 / 32) * 1024, 1e-9));
     });
   });
 

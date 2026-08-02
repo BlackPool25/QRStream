@@ -145,6 +145,13 @@ void main() {
       expect(layouts[LayoutId.grid4], (cols: 2, rows: 2));
       expect(layouts[LayoutId.grid9], (cols: 3, rows: 3));
     });
+
+    test('row2 and column2 are pinned exactly', () {
+      // row2 = two tiles side by side (1 row x 2 cols), column2 = two tiles
+      // stacked (2 rows x 1 col) — both dual-lane layouts.
+      expect(layouts[LayoutId.row2], (cols: 2, rows: 1));
+      expect(layouts[LayoutId.column2], (cols: 1, rows: 2));
+    });
   });
 
   group('TransferSettings', () {

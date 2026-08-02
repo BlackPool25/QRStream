@@ -48,9 +48,11 @@ enum BytesPerTileId {
   final String id;
 }
 
-/// Tile layout id (port of the `'single' | 'column3' | 'row3' | 'grid4' | 'grid9'`
-/// string union).
-enum LayoutId { single, column3, row3, grid4, grid9 }
+/// Tile layout id (port of the
+/// `'single' | 'column2' | 'row2' | 'column3' | 'row3' | 'grid4' | 'grid9'`
+/// string union). The `column2`/`row2` layouts drive the dual-lane schedule
+/// (two position-stable tiles, one symbol per tick).
+enum LayoutId { single, column2, row2, column3, row3, grid4, grid9 }
 
 /// A QR display profile: QR version/ECC-agnostic sizing and frame budget.
 class BytesPerTileProfile {
@@ -107,6 +109,8 @@ const bytesPerTile = <BytesPerTileId, BytesPerTileProfile>{
 /// Tiles per frame, as (cols, rows).
 const layouts = <LayoutId, ({int cols, int rows})>{
   LayoutId.single: (cols: 1, rows: 1),
+  LayoutId.column2: (cols: 1, rows: 2),
+  LayoutId.row2: (cols: 2, rows: 1),
   LayoutId.column3: (cols: 1, rows: 3),
   LayoutId.row3: (cols: 3, rows: 1),
   LayoutId.grid4: (cols: 2, rows: 2),

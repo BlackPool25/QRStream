@@ -133,6 +133,18 @@ void main() {
         _throwsArgumentErrorWith('targetFps'),
       );
     });
+
+    test('accepts the dual-lane layouts row2 and column2', () {
+      for (final layout in <LayoutId>[LayoutId.row2, LayoutId.column2]) {
+        final s = TransferSettings(
+          bytesPerTile: BytesPerTileId.oneK,
+          layout: layout,
+          targetFps: 15,
+          highRefresh: false,
+        );
+        expect(() => validateSettings(s), returnsNormally, reason: '$layout');
+      }
+    });
   });
 
   group('classifyRefreshRate', () {
@@ -229,6 +241,16 @@ void main() {
       expect(
         transferLabel(settings(BytesPerTileId.oneK, LayoutId.single)),
         'V27 · 1×1',
+      );
+      // The dual-lane layouts: row2 is one row of two tiles (1×2), column2 is
+      // one column of two tiles (2×1).
+      expect(
+        transferLabel(settings(BytesPerTileId.oneK, LayoutId.row2)),
+        'V27 · 1×2',
+      );
+      expect(
+        transferLabel(settings(BytesPerTileId.oneK, LayoutId.column2)),
+        'V27 · 2×1',
       );
     });
   });

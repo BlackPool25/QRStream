@@ -15,6 +15,8 @@ import 'package:qr_transfer_core/protocol/constants.dart';
 /// it caps at 24; the others may run up to 30 when the device allows.
 const layoutMaxFps = <LayoutId, int>{
   LayoutId.single: 30,
+  LayoutId.column2: 30,
+  LayoutId.row2: 30,
   LayoutId.column3: 30,
   LayoutId.row3: 30,
   LayoutId.grid4: 30,
@@ -26,6 +28,12 @@ const grid4MinCanvasPx = 800;
 
 /// Min square-canvas side (px) at which the 3x3 grid is worthwhile.
 const grid9MinCanvasPx = 1800;
+
+/// Min canvas min-side (px) at which the 3-tile column/row layouts are
+/// worthwhile; a portrait/landscape canvas below this is suggested the 2-tile
+/// dual-lane layout instead.
+const column2MinCanvasPx = 480;
+const row2MinCanvasPx = 480;
 
 /// Hard floor the display loop throttles down to before giving up on fps.
 const minFps = 8;
@@ -63,18 +71,19 @@ class SenderStats {
 int computeFrameDelayMs(int targetFps) => (1000 / targetFps).round();
 
 /// Layout best suited to the canvas aspect ratio and size: extreme portrait →
-/// column3, extreme landscape → row3, square-ish canvases by how many
+/// column3 (or column2 below [column2MinCanvasPx]), extreme landscape → row3
+/// (or row2 below [row2MinCanvasPx]), square-ish canvases by how many
 /// near-square tiles they can hold (grid9 needs both sides >=
 /// [grid9MinCanvasPx], grid4 >= [grid4MinCanvasPx]), otherwise a single tile.
 LayoutId suggestLayout(int canvasWidth, int canvasHeight) {
   final aspect = canvasWidth / canvasHeight;
+  final minSide = math.min(canvasWidth, canvasHeight);
   if (aspect < 0.8) {
-    return LayoutId.column3;
+    return minSide < column2MinCanvasPx ? LayoutId.column2 : LayoutId.column3;
   }
   if (aspect > 1.25) {
-    return LayoutId.row3;
+    return minSide < row2MinCanvasPx ? LayoutId.row2 : LayoutId.row3;
   }
-  final minSide = math.min(canvasWidth, canvasHeight);
   if (minSide >= grid9MinCanvasPx) {
     return LayoutId.grid9;
   }
@@ -140,16 +149,27 @@ int _integerScalePx(int modules, int targetPx) =>
   return (cellW: cellW, cellH: cellH, ppm: ppm);
 }
 
-/// Expected broadcast rate in bytes/second: effective fps x data tiles per
-/// tick x symbol size. One of every 32 ticks is the metadata re-broadcast, so
-/// data tiles per tick = tilesPerFrame - 1/32; repair overhead (~1.0x) is a
-/// transfer-level cost and is not subtracted here.
+/// Data symbols shown per display tick, net of the metadata re-broadcast
+/// (one of every [metadataRebroadcastEvery] ticks carries META instead of a
+/// DATA frame). The dual-lane layouts show exactly one new symbol per tick (2
+/// tiles, each holding for 2 ticks — the same rate as a single tile), so they
+/// must not be charged `tilesPerFrame`; META replaces the lane that would
+/// otherwise update.
+double symbolsPerTickFor(LayoutId layout) {
+  if (isDualLaneLayout(layout)) {
+    return 1 - 1 / metadataRebroadcastEvery;
+  }
+  final tile = layouts[layout]!;
+  return tile.cols * tile.rows - 1 / metadataRebroadcastEvery;
+}
+
+/// Expected broadcast rate in bytes/second: effective fps x data symbols per
+/// tick x symbol size. Repair overhead (~1.0x) is a transfer-level cost and is
+/// not subtracted here.
 double estimateThroughput(TransferSettings settings) {
-  final layout = layouts[settings.layout]!;
-  final tilesPerFrame = layout.cols * layout.rows;
   final symbolSize = bytesPerTile[settings.bytesPerTile]!.symbolSize;
   return _effectiveFpsFor(settings) *
-      (tilesPerFrame - 1 / metadataRebroadcastEvery) *
+      symbolsPerTickFor(settings.layout) *
       symbolSize;
 }
 
@@ -202,6 +222,35 @@ List<int> nextEsiRoundRobin(
     (i) => (start + i) % poolSize,
     growable: false,
   );
+}
+
+/// Whether `layout` is one of the dual-lane position-stable layouts: two tiles
+/// at fixed slots, each updating at half the display rate (see
+/// [nextEsiDualLane]).
+bool isDualLaneLayout(LayoutId layout) =>
+    layout == LayoutId.row2 || layout == LayoutId.column2;
+
+/// Dual-lane schedule: lane 0 updates on EVEN ticks, lane 1 on ODD ticks; each
+/// lane holds its QR for exactly 2 ticks (half the display rate). Slot i always
+/// carries lane i (position-stable). The two walkers are phase-offset by
+/// poolSize/2 so the lanes never show the same esi on the same tick.
+///
+/// Pure function of tickIndex — the broadcast controller relies on
+/// `_requestFrame` (encode lookahead) and `_frameWithEsis` (drain) recomputing
+/// the SAME esis, exactly like [nextEsiRoundRobin].
+///
+/// Pool size must be >= 3 for the phase offset to keep the lanes distinct
+/// (k + repairAvailable is always well above that in practice). With an odd
+/// pool size `P~/2` floors, but the offset is still nonzero mod P, so the
+/// lanes remain distinct on every tick.
+List<int> nextEsiDualLane(int k, int repairAvailable, int tickIndex) {
+  final poolSize = k + repairAvailable;
+  if (poolSize <= 0) {
+    return [];
+  }
+  final lane0 = (tickIndex ~/ 2) % poolSize;
+  final lane1 = ((tickIndex + 1) ~/ 2 + poolSize ~/ 2) % poolSize;
+  return [lane0, lane1];
 }
 
 /// Deterministic packet source for the broadcast loop: source frames come
