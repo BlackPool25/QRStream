@@ -159,6 +159,9 @@ jobs:
           flutter create --platforms=windows --org com.qrtransfer --project-name qr_data_transfer .
           cp windows_templates/CMakeLists.txt windows/CMakeLists.txt
           cp windows_templates/runner/CMakeLists.txt windows/runner/CMakeLists.txt
+          # flutter create scaffolds the default Flutter blue app_icon.ico;
+          # overlay the brand logo so the exe embeds the QRStream icon.
+          cp windows_templates/runner/resources/app_icon.ico windows/runner/resources/app_icon.ico
 
       - name: Rust release codec (Windows dll)
         working-directory: flutter_app/rust
