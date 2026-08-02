@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:mime/mime.dart';
 import 'package:qr_transfer_core/codec/fountain/interface.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
 import 'package:qr_transfer_core/protocol/constants.dart' as qrc;
@@ -284,7 +285,11 @@ Future<PickedFile?> _realFilePicker() async {
     ]);
     if (file == null) return null;
     final bytes = await file.readAsBytes();
-    return (name: file.name, mime: 'application/octet-stream', bytes: bytes);
+    // Real MIME from the extension — the wire metadata and the MediaStore
+    // MIME_TYPE row inherit this, so the saved file opens in file managers
+    // (a hardcoded application/octet-stream makes Google Files refuse it).
+    final mime = lookupMimeType(file.name) ?? 'application/octet-stream';
+    return (name: file.name, mime: mime, bytes: bytes);
   } catch (_) {
     return null;
   }

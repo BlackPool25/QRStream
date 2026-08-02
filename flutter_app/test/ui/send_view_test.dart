@@ -248,6 +248,54 @@ void main() {
     expect(find.byKey(const Key('begin_broadcast')), findsNothing);
   });
 
+  testWidgets(
+      'pick → Different file → pick a different file again reaches settings (no hang)',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final factory = FakeFountainFactory();
+    var call = 0;
+    Future<PickedFile?> sequencedPicker() async {
+      call++;
+      if (call == 1) {
+        return (name: 'a.bin', mime: 'application/octet-stream',
+            bytes: Uint8List.fromList(List<int>.filled(4096, 0x42)));
+      }
+      return (name: 'b.bin', mime: 'application/octet-stream',
+          bytes: Uint8List.fromList(List<int>.filled(8192, 0x24)));
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SendView(
+            filePicker: sequencedPicker,
+            factory: factory,
+            refreshRateProbe: () async => 60,
+          ),
+        ),
+      ),
+    );
+
+    // Pick file A -> settings.
+    await tester.tap(find.byKey(const Key('pick_file')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('a.bin'), findsOneWidget);
+    expect(factory.encoderCreations, 1);
+
+    // Different file -> idle.
+    await tester.tap(find.text('Different file'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pick_file')), findsOneWidget);
+
+    // Pick file B -> settings again. This is the sequence that froze on Linux.
+    await tester.tap(find.byKey(const Key('pick_file')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('b.bin'), findsOneWidget);
+    expect(find.textContaining('a.bin'), findsNothing);
+    expect(factory.encoderCreations, 2,
+        reason: 'a different file re-prepares exactly once');
+  });
+
   testWidgets('empty/invalid file shows an error, not a crash', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
