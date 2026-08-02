@@ -11,3 +11,10 @@ raptorq = "=2.0.1"
 flutter_rust_bridge = "=2.12.0"
 
 [dev-dependencies]
+
+# RaptorQ's GF(256) encode/decode is the hot loop in the round-trip tests; at
+# opt-level 0 it dominates the suite (~150 s for the 1 MiB loss matrix). Compile
+# only the codec optimized in dev/test builds so `cargo test` stays fast with no
+# command change; the test crate itself keeps debug assertions.
+[profile.dev.package.raptorq]
+opt-level = 3
