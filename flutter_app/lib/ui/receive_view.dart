@@ -221,8 +221,9 @@ class _ReceiveViewState extends State<ReceiveView> {
           })
           .catchError((Object e) {
             _decoding = false;
-            if (mounted && _phase == _Phase.scanning)
+            if (mounted && _phase == _Phase.scanning) {
               _fail('Decode failed: $e');
+            }
           }),
     );
   }
