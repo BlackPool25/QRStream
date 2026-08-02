@@ -27,3 +27,6 @@ tests/soak/soak-report.txt
 
 # Linux RPM build output
 packaging/linux/rpmbuild/
+
+# Archived internal planning/handoff docs — never commit
+.archive/
