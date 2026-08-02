@@ -175,6 +175,8 @@ cd flutter_app/core
 # Rust core
 cd flutter_app/rust
 cargo test
+# RaptorQ is compiled optimized in dev/test builds (see Cargo.toml), so the
+# full suite runs in ~9 s; `cargo test --release` is fastest (~0.1 s).
 
 # PWA suites (kept green: the demo and the interop reference)
 cd /home/shreyas/projects/qr-data-transfer

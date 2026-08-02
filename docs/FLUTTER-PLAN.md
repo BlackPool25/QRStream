@@ -65,7 +65,7 @@ qr-data-transfer/
 |---|---|---|
 | `~/dart-sdk/bin/dart test` (in core/) | 245 pure-Dart tests | ✅ |
 | `~/dart-sdk/bin/dart analyze` (in core/) | core lint | ✅ |
-| `cargo test` (in rust/) | 5 Rust tests incl. PWA-packet interop | ✅ |
+| `cargo test` (in rust/) | 5 Rust tests incl. PWA-packet interop; raptorq is opt-level 3 in dev/test builds via `[profile.dev.package.raptorq]` — ~9 s; `--release` ~0.1 s | ✅ |
 | `flutter test` (in flutter_app/) | widget tests | ✅ |
 | `flutter analyze` (in flutter_app/) | app lint | ✅ |
 | `flutter build linux --debug` | Linux bundle | ✅ (built OK) |
