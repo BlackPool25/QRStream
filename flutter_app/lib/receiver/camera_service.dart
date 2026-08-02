@@ -103,7 +103,9 @@ class PluginCameraService implements CameraService {
       _sensorOrientation = back.sensorOrientation;
       controller = CameraController(
         back,
-        ResolutionPreset.high,
+        // 1080p: a QR grid (up to 3x3 tiles) needs pixel headroom per module
+        // to decode reliably; the sensor typically exposes ~2 MP natively.
+        ResolutionPreset.veryHigh,
         enableAudio: false,
         // The plugin converts the YUV frames to a single tightly-packed NV21
         // plane (no row padding) — exactly the layout Android ML Kit's
