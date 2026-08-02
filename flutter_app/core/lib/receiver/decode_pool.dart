@@ -225,17 +225,40 @@ List<DecodeResult> _decodeRgb(
   final bitmap = BinaryBitmap(
     GlobalHistogramBinarizer(RGBLuminanceSource(width, height, pixels)),
   );
+  // Every failure mode — including zxing2 quirks like a misread version that
+  // throws a StateError/ArgumentError instead of a ReaderException — is a
+  // "no QR in this frame" outcome. A single bad frame must never kill the
+  // receive session, so only a successful decode returns results.
   try {
     return [_resultFrom(reader.decode(bitmap, hints: hints))];
-  } on ReaderException {
-    // Detector failed; the pure path samples the module grid directly and
-    // recovers clean, aligned QRs the finder pattern scan rejects.
-    try {
-      return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
-    } on ReaderException {
-      return _decodeInverted(reader, hints, pureHints, width, height, pixels);
-    }
+  } on Exception {
+    return _decodePureAndInverted(reader, hints, pureHints, width, height, pixels);
+  } catch (_) {
+    return const [];
   }
+}
+
+/// Tries the pure-grid path, then the inverted image (the white-on-dark
+/// espresso stage), treating every failure as an empty result.
+List<DecodeResult> _decodePureAndInverted(
+  QRCodeReader reader,
+  DecodeHints hints,
+  DecodeHints pureHints,
+  int width,
+  int height,
+  Int32List pixels,
+) {
+  final bitmap = BinaryBitmap(
+    GlobalHistogramBinarizer(RGBLuminanceSource(width, height, pixels)),
+  );
+  try {
+    return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
+  } on Exception {
+    // fall through to the inverted image
+  } catch (_) {
+    return const [];
+  }
+  return _decodeInverted(reader, hints, pureHints, width, height, pixels);
 }
 
 /// The broadcast stage can be white-modules-on-dark (the Flutter espresso
@@ -259,12 +282,17 @@ List<DecodeResult> _decodeInverted(
   );
   try {
     return [_resultFrom(reader.decode(bitmap, hints: hints))];
-  } on ReaderException {
-    try {
-      return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
-    } on ReaderException {
-      return const [];
-    }
+  } on Exception {
+    // fall through to the inverted pure path
+  } catch (_) {
+    return const [];
+  }
+  try {
+    return [_resultFrom(reader.decode(bitmap, hints: pureHints))];
+  } on Exception {
+    return const [];
+  } catch (_) {
+    return const [];
   }
 }
 

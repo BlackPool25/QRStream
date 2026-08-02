@@ -148,6 +148,23 @@ void main() {
       expect(results.single.bytes, equals(frame));
     });
 
+    test('adversarial frames resolve to empty results, never an error', () async {
+      // A single garbage frame (random noise — the shape that makes zxing
+      // throw non-ReaderExceptions like a misread version) must resolve to
+      // "no QR", never surface as an error that would kill the session.
+      final noise = Uint8List.fromList(
+        List<int>.generate(64 * 64 * 3, (i) => (i * 37 + 11) & 0xff),
+      );
+      final results = await pool.decode(noise, 64, 64);
+      expect(results, isEmpty);
+
+      // Solid frames (all-white / all-black) are likewise empty, not errors.
+      final white = Uint8List(64 * 64 * 3)..fillRange(0, 64 * 64 * 3, 255);
+      expect(await pool.decode(white, 64, 64), isEmpty);
+      final black = Uint8List(64 * 64 * 3);
+      expect(await pool.decode(black, 64, 64), isEmpty);
+    });
+
     test(
       'round-robin dispatch correlates every decode to its own frame',
       () async {
