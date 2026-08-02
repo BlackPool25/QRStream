@@ -9,6 +9,9 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 raptorq = "=2.0.1"
 flutter_rust_bridge = "=2.12.0"
+# QR decoding for the receive path. `bundled` compiles the C++ core via `cc`
+# (needs a C++17 compiler, e.g. g++/clang++ on PATH) — see zxing_cpp README.
+zxing-cpp = { version = "=0.5.3", default-features = false, features = ["bundled"] }
 
 [dev-dependencies]
 

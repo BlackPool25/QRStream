@@ -130,6 +130,20 @@ impl RaptorqDecoder {
     }
 }
 
+/// Decodes every QR in a grayscale luma frame (tight, row-major, 1 byte/px).
+/// Returns the decoded payload bytes of every QR found; empty when none.
+#[flutter_rust_bridge::frb(sync)]
+pub fn decode_qr_barcodes(luma: Vec<u8>, width: u32, height: u32) -> Result<Vec<Vec<u8>>, String> {
+    if luma.len() as u32 != width * height {
+        return Err(format!("decode_qr_barcodes: luma {}B != {width}x{height}", luma.len()));
+    }
+    let view = zxingcpp::ImageView::from_slice(&luma, width, height, zxingcpp::ImageFormat::Lum)
+        .map_err(|e| e.to_string())?;
+    let reader = zxingcpp::read().formats(&[zxingcpp::BarcodeFormat::QRCode]);
+    let barcodes = reader.from(&view).map_err(|e| e.to_string())?;
+    Ok(barcodes.into_iter().map(|b| b.bytes()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::RaptorqDecoder;
@@ -328,5 +342,93 @@ mod tests {
             "post-completion decode returns None"
         );
         assert!(decoder.decode(source_packets[1].clone()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod zxing_tests {
+    use super::decode_qr_barcodes;
+
+    /// Light-luma gap (columns) between side-by-side QRs, >= the 4-module quiet
+    /// zone QR needs.
+    const GAP: u32 = 16;
+
+    /// Deterministic 128-byte payload (LCG — same family as the RaptorQ tests).
+    fn payload128() -> Vec<u8> {
+        let mut state: u64 = 0xdead_beef_cafe_f00d;
+        let mut out = vec![0u8; 128];
+        for byte in out.iter_mut() {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            *byte = (state >> 56) as u8;
+        }
+        out
+    }
+
+    /// Rasterizes a QR for `payload` at `scale` px/module into a tight, row-major
+    /// luma buffer (dark=0 / light=255). The writer's image is 1-byte Lum.
+    fn qr_luma(payload: &[u8], scale: i32) -> (Vec<u8>, u32, u32) {
+        let code = zxingcpp::create(zxingcpp::BarcodeFormat::QRCode)
+            .from_slice(payload)
+            .unwrap_or_else(|e| panic!("create QR: {e}"));
+        let img = code
+            .to_image_with(&zxingcpp::write().scale(scale))
+            .unwrap_or_else(|e| panic!("rasterize QR: {e}"));
+        (img.data(), img.width() as u32, img.height() as u32)
+    }
+
+    /// Lays luma images out side by side on a light (0xff) canvas of the common
+    /// height, `gap` light columns between them, vertically centered.
+    fn side_by_side(images: &[(Vec<u8>, u32, u32)], gap: u32) -> (Vec<u8>, u32, u32) {
+        let height = images.iter().map(|(_, _, h)| *h).max().unwrap_or(0);
+        let width: u32 = images.iter().map(|(_, w, _)| w).sum::<u32>() + gap * (images.len() as u32 - 1);
+        let mut out = vec![0xffu8; width as usize * height as usize];
+        let mut x = 0u32;
+        for (data, w, h) in images {
+            let y0 = (height - h) / 2;
+            for (row, src) in data.chunks_exact(*w as usize).enumerate() {
+                let dst = (y0 + row as u32) * width + x;
+                out[dst as usize..dst as usize + src.len()].copy_from_slice(src);
+            }
+            x += w + gap;
+        }
+        (out, width, height)
+    }
+
+    #[test]
+    fn decode_qr_barcodes_round_trips_byte_exact() {
+        let payload = payload128();
+        let (luma, w, h) = qr_luma(&payload, 4);
+        let decoded = decode_qr_barcodes(luma, w, h).unwrap_or_else(|e| panic!("decode: {e}"));
+        assert_eq!(decoded.len(), 1, "exactly one QR");
+        assert_eq!(decoded[0], payload, "byte-exact round trip");
+    }
+
+    #[test]
+    fn decode_all_qrs_in_one_frame() {
+        let a = payload128();
+        let b = vec![0x5a; 64];
+        let (la, wa, ha) = qr_luma(&a, 4);
+        let (lb, wb, _) = qr_luma(&b, 4);
+        let (luma, w, h) = side_by_side(&[(la, wa, ha), (lb, wb, ha)], GAP);
+        let decoded = decode_qr_barcodes(luma, w, h).unwrap_or_else(|e| panic!("decode: {e}"));
+        assert_eq!(decoded.len(), 2, "two QRs in one frame");
+        let set: std::collections::HashSet<Vec<u8>> = decoded.into_iter().collect();
+        assert!(set.contains(&a), "payload A present");
+        assert!(set.contains(&b), "payload B present");
+    }
+
+    #[test]
+    fn decode_empty_when_no_qr() {
+        let luma = vec![0xffu8; 64 * 64];
+        let decoded = decode_qr_barcodes(luma, 64, 64).unwrap_or_else(|e| panic!("decode: {e}"));
+        assert!(decoded.is_empty(), "uniform grey frame yields no QR");
+    }
+
+    #[test]
+    fn decode_rejects_dimension_mismatch() {
+        let err = decode_qr_barcodes(vec![0u8; 99], 10, 10).expect_err("len 99 != 10x10");
+        assert!(err.contains("99"), "error mentions the mismatched length");
     }
 }
