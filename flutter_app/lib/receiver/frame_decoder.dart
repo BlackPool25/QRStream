@@ -37,9 +37,16 @@ abstract class FrameDecoder {
 /// the only work on the UI thread is a memcpy that concatenates the planes,
 /// so the per-frame YUV→RGB conversion is gone entirely.
 class MlKitFrameDecoder implements FrameDecoder {
-  MlKitFrameDecoder() : _scanner = BarcodeScanner();
+  MlKitFrameDecoder({BarcodeScanner? scanner, DecodePool? zxing})
+    : this._(scanner ?? BarcodeScanner(), zxing);
+
+  MlKitFrameDecoder._(this._scanner, this._zxing);
 
   final BarcodeScanner _scanner;
+
+  /// Last-resort zxing2 decode pool, created lazily — healthy devices never
+  /// spawn its isolates.
+  DecodePool? _zxing;
 
   @override
   Future<List<DecodeResult>> decode(
@@ -54,21 +61,8 @@ class MlKitFrameDecoder implements FrameDecoder {
     // Try the layouts in order; ML Kit's native converter has device-specific
     // quirks (some devices reject even byte-perfect NV21 with an NPE), so the
     // first layout the device accepts wins.
-    final attempts = <({InputImageFormat format, Uint8List bytes})>[
-      if (planes.length == 1) ...[
-        // camera_android's own NV21 conversion: one tight plane.
-        (format: InputImageFormat.nv21, bytes: planes[0].bytes),
-        // I420 derived from that NV21 plane.
-        (format: InputImageFormat.yuv_420_888, bytes: nv21ToI420ForTest(planes[0].bytes, image.width, image.height)),
-      ] else ...[
-        // Replicate the plugin's conversion semantics byte-for-byte.
-        (format: InputImageFormat.nv21, bytes: _toNv21(image)),
-        // Tightly-packed planar I420 (padding stripped from each plane).
-        (format: InputImageFormat.yuv_420_888, bytes: _toI420(image)),
-      ],
-    ];
+    final attempts = buildAttempts(image);
 
-    Object? lastError;
     for (final attempt in attempts) {
       try {
         final barcodes = await _processBytes(
@@ -79,8 +73,8 @@ class MlKitFrameDecoder implements FrameDecoder {
           image.width,
         );
         return barcodes;
-      } on PlatformException catch (e) {
-        lastError = e;
+      } on PlatformException {
+        // Try the next layout.
       }
     }
     // The byte-array converter is broken on some devices (flutter-ml #628:
@@ -89,23 +83,75 @@ class MlKitFrameDecoder implements FrameDecoder {
     // InputImage.fromFilePath — slower, but it works everywhere.
     try {
       final fileInput = await _filePathInput(image, size, rotation);
-      return await _processInput(fileInput);
-    } on PlatformException catch (e) {
-      lastError = e;
+      try {
+        return await _processInput(fileInput);
+      } finally {
+        // The fallback fires per frame on a broken device — never leave
+        // the temp PNG behind.
+        final path = fileInput.filePath;
+        if (path != null) {
+          File(path).delete().catchError((_) => File(path));
+        }
+      }
+    } on PlatformException {
+      // ML Kit is entirely broken on this device — fall back to the
+      // pure-Dart zxing2 decode pool so scanning still works.
     }
-    // All layouts failed — surface the frame layout so a failing device
-    // pinpoints the path and dimensions.
-    final layout =
-        'planes=${planes.length} fmt=${image.format.raw} '
-        '${image.width}x${image.height} '
-        'bytes=${planes.map((p) => p.bytes.length).toList()} '
-        'strides=${planes.map((p) => p.bytesPerRow).toList()} '
-        'pix=${planes.map((p) => p.bytesPerPixel).toList()}';
-    throw PlatformException(
-      code: 'MlKitDecode',
-      message: '${lastError is PlatformException ? lastError.message : lastError} '
-          'frame=$layout',
+    return _decodeWithZxing(image);
+  }
+
+  /// Last-resort decode: core's isolate-backed zxing2 pool on the RGB frame.
+  /// The pool is created lazily (spawning isolates per device, not per frame)
+  /// and returns an empty list — never an error — when no QR is in view.
+  Future<List<DecodeResult>> _decodeWithZxing(CameraImage image) {
+    return (_zxing ??= DecodePool()).decode(
+      cameraImageToRgb(image),
+      image.width,
+      image.height,
     );
+  }
+
+  /// Converts the frame to raw RGB (3 bytes/pixel, row-major) for the zxing2
+  /// decode pool.
+  @visibleForTesting
+  static Uint8List cameraImageToRgb(CameraImage image) {
+    final rgba = _nv21ToRgba(image);
+    final rgb = Uint8List(rgba.length * 3 ~/ 4);
+    for (var p = 0, o = 0; p < rgba.length; p += 4, o += 3) {
+      rgb[o] = rgba[p];
+      rgb[o + 1] = rgba[p + 1];
+      rgb[o + 2] = rgba[p + 2];
+    }
+    return rgb;
+  }
+
+  /// Builds the byte-format attempts for ML Kit in the order a device should
+  /// try them: tight NV21 first, then planar YV12. The yuv_420_888 attempt is
+  /// dead — ML Kit's byte-array constructor only accepts NV21 (17) and YV12
+  /// (842094169) and throws for anything else. The buffers are laid out as
+  /// I420, but the chroma plane order is irrelevant to luma-based QR
+  /// detection, so they're passed through as YV12.
+  @visibleForTesting
+  static List<({InputImageFormat format, Uint8List bytes})> buildAttempts(
+    CameraImage image,
+  ) {
+    final planes = image.planes;
+    return [
+      if (planes.length == 1) ...[
+        // camera_android's own NV21 conversion: one tight plane.
+        (format: InputImageFormat.nv21, bytes: planes[0].bytes),
+        // YV12 derived from that NV21 plane.
+        (
+          format: InputImageFormat.yv12,
+          bytes: nv21ToI420ForTest(planes[0].bytes, image.width, image.height),
+        ),
+      ] else ...[
+        // Replicate the plugin's conversion semantics byte-for-byte.
+        (format: InputImageFormat.nv21, bytes: _toNv21(image)),
+        // Tightly-packed planar YV12 (padding stripped from each plane).
+        (format: InputImageFormat.yv12, bytes: _toI420(image)),
+      ],
+    ];
   }
 
   Future<List<DecodeResult>> _processBytes(
@@ -297,6 +343,8 @@ class MlKitFrameDecoder implements FrameDecoder {
   @override
   void dispose() {
     _scanner.close();
+    // The null check matters: never create the pool during dispose.
+    _zxing?.dispose();
   }
 
   static InputImageRotation _rotationFor(int degrees) => switch (degrees) {
