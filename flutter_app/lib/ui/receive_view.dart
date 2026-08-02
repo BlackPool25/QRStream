@@ -27,11 +27,15 @@ import 'package:camera/camera.dart';
 import 'package:qr_data_transfer/receiver/camera_service.dart';
 import 'package:qr_data_transfer/receiver/frame_decoder.dart';
 import 'package:qr_data_transfer/receiver/saver.dart';
+import 'package:qr_data_transfer/ui/saved_file_preview.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
 import 'package:qr_transfer_core/receiver/decode_pool.dart' show DecodeResult;
-import 'package:qr_transfer_core/receiver/frames.dart' show FeedResult, FeedStatus, FrameBuffer;
-import 'package:qr_transfer_core/receiver/reassembler.dart' show Reassembler, ReassemblyResult;
-import 'package:qr_transfer_core/receiver/stats.dart' show FeedState, ReceiverStats, ReceiverStatus, StatsSample, updateStats;
+import 'package:qr_transfer_core/receiver/frames.dart'
+    show FeedResult, FeedStatus, FrameBuffer;
+import 'package:qr_transfer_core/receiver/reassembler.dart'
+    show Reassembler, ReassemblyResult;
+import 'package:qr_transfer_core/receiver/stats.dart'
+    show FeedState, ReceiverStats, ReceiverStatus, StatsSample, updateStats;
 
 enum _Phase { idle, starting, scanning, saving, saved, error }
 
@@ -85,7 +89,8 @@ class _ReceiveViewState extends State<ReceiveView> {
   String? _sid;
   int? _mtu;
   FrameDecoder? _decoder;
-  bool _decoding = false; // in-flight guard: skip frames while one is processing
+  bool _decoding =
+      false; // in-flight guard: skip frames while one is processing
   bool _torch = false;
   double _zoom = 1.0;
   Stopwatch? _clock;
@@ -104,38 +109,41 @@ class _ReceiveViewState extends State<ReceiveView> {
         )
       : switch (_phase) {
           _Phase.idle => _card(
-              context,
-              Icons.qr_code_scanner,
-              'Scan a broadcast',
-              "Point your camera at the sender's screen to receive a file. "
-                  'Everything happens on device — no network required.',
-              action: FilledButton.icon(
-                onPressed: _start,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Start scanning'),
-              ),
-              trailing: widget.onExit == null
-                  ? null
-                  : TextButton(onPressed: widget.onExit, child: const Text('Back')),
+            context,
+            Icons.qr_code_scanner,
+            'Scan a broadcast',
+            "Point your camera at the sender's screen to receive a file. "
+                'Everything happens on device — no network required.',
+            action: FilledButton.icon(
+              onPressed: _start,
+              icon: const Icon(Icons.camera_alt),
+              label: const Text('Start scanning'),
             ),
+            trailing: widget.onExit == null
+                ? null
+                : TextButton(
+                    onPressed: widget.onExit,
+                    child: const Text('Back'),
+                  ),
+          ),
           _Phase.starting => const Center(child: CircularProgressIndicator()),
           _Phase.saving => _card(
-              context,
-              Icons.download,
-              'Saving…',
-              'Saving ${_result?.filename ?? 'file'}…',
-            ),
+            context,
+            Icons.download,
+            'Saving…',
+            'Saving ${_result?.filename ?? 'file'}…',
+          ),
           _Phase.saved => _savedCard(context),
           _Phase.error => _card(
-              context,
-              Icons.error_outline,
-              'Could not scan',
-              _error ?? 'Something went wrong.',
-              action: FilledButton(
-                onPressed: _start,
-                child: const Text('Try again'),
-              ),
+            context,
+            Icons.error_outline,
+            'Could not scan',
+            _error ?? 'Something went wrong.',
+            action: FilledButton(
+              onPressed: _start,
+              child: const Text('Try again'),
             ),
+          ),
           _Phase.scanning => _scanning(context),
         };
 
@@ -198,22 +206,24 @@ class _ReceiveViewState extends State<ReceiveView> {
     _decoding = true;
     final stopwatch = Stopwatch()..start();
     unawaited(
-      decoder.decode(image, rotationDegrees: rotationDegrees).then((rs) {
-        _decoding = false;
-        _diagnose(decoder, stopwatch.elapsed);
-        if (!mounted) return;
-        // Decodes serialize through [_queue], exactly like the PWA's
-        // feedQueue, so feed order is preserved and start()/feedMore() never
-        // race.
-        _queue = _queue
-            .then((_) => _decoded(rs))
-            .catchError((Object e) {
+      decoder
+          .decode(image, rotationDegrees: rotationDegrees)
+          .then((rs) {
+            _decoding = false;
+            _diagnose(decoder, stopwatch.elapsed);
+            if (!mounted) return;
+            // Decodes serialize through [_queue], exactly like the PWA's
+            // feedQueue, so feed order is preserved and start()/feedMore() never
+            // race.
+            _queue = _queue.then((_) => _decoded(rs)).catchError((Object e) {
               if (mounted && _phase == _Phase.scanning) _fail('$e');
             });
-      }).catchError((Object e) {
-        _decoding = false;
-        if (mounted && _phase == _Phase.scanning) _fail('Decode failed: $e');
-      }),
+          })
+          .catchError((Object e) {
+            _decoding = false;
+            if (mounted && _phase == _Phase.scanning)
+              _fail('Decode failed: $e');
+          }),
     );
   }
 
@@ -226,9 +236,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     final timing = decoder.lastTiming;
     if (timing == null) return;
     if (timing.path == MlKitDecodePath.zxing || duration.inMilliseconds > 100) {
-      debugPrint(
-        'decode: ${timing.path.name} ${duration.inMilliseconds}ms',
-      );
+      debugPrint('decode: ${timing.path.name} ${duration.inMilliseconds}ms');
     }
   }
 
@@ -389,9 +397,9 @@ class _ReceiveViewState extends State<ReceiveView> {
       await _saver.openSavedFile(s);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open the file: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open the file: $e')));
     }
   }
 
@@ -420,6 +428,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     IconData icon,
     String title,
     String body, {
+    Widget? bodyWidget,
     Widget? action,
     Widget? trailing,
   }) {
@@ -437,7 +446,12 @@ class _ReceiveViewState extends State<ReceiveView> {
                 const SizedBox(height: 16),
                 Text(title, style: t.textTheme.titleLarge),
                 const SizedBox(height: 8),
-                Text(body, style: t.textTheme.bodyMedium, textAlign: TextAlign.center),
+                Text(
+                  body,
+                  style: t.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                ?bodyWidget,
                 if (action != null) ...[const SizedBox(height: 16), action],
                 if (trailing != null) ...[const SizedBox(height: 8), trailing],
               ],
@@ -448,18 +462,31 @@ class _ReceiveViewState extends State<ReceiveView> {
     );
   }
 
-  Widget _savedCard(BuildContext c) => _card(
-        c,
-        Icons.check_circle_outline,
-        'File saved',
-        'Saved as ${_saved?.name ?? 'file'}',
-        action: FilledButton.icon(
-          onPressed: _open,
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Open file'),
-        ),
-        trailing: TextButton(onPressed: _restart, child: const Text('Scan another')),
-      );
+  Widget _savedCard(BuildContext c) {
+    final r = _result;
+    final s = _saved;
+    return _card(
+      c,
+      Icons.check_circle_outline,
+      'File saved',
+      'Saved as ${s?.name ?? 'file'}',
+      bodyWidget: r != null && s != null
+          ? Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: SavedFilePreview(result: r, saved: s),
+            )
+          : null,
+      action: FilledButton.icon(
+        onPressed: _open,
+        icon: const Icon(Icons.open_in_new),
+        label: const Text('Open file'),
+      ),
+      trailing: TextButton(
+        onPressed: _restart,
+        child: const Text('Scan another'),
+      ),
+    );
+  }
 
   Widget _scanning(BuildContext c) {
     final r = _result;
@@ -468,18 +495,14 @@ class _ReceiveViewState extends State<ReceiveView> {
         // Live camera preview when available; the espresso backdrop otherwise
         // (fake services, still-initializing controller).
         Positioned.fill(
-          child: _camera.buildPreview() ??
+          child:
+              _camera.buildPreview() ??
               const ColoredBox(color: Color(0xFF101316)),
         ),
         if (_error != null)
           Positioned(top: 8, left: 8, right: 8, child: _banner(c, _error!)),
         if (r != null)
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 128,
-            child: _saveCard(c, r),
-          ),
+          Positioned(left: 24, right: 24, bottom: 128, child: _saveCard(c, r)),
         Positioned(
           left: 12,
           right: 12,
@@ -492,7 +515,12 @@ class _ReceiveViewState extends State<ReceiveView> {
             ),
           ),
         ),
-        Positioned(left: 12, right: 12, bottom: 12, child: _StatsOverlay(_stats)),
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: 12,
+          child: _StatsOverlay(_stats),
+        ),
       ],
     );
   }
@@ -587,7 +615,11 @@ class _ReceiveViewState extends State<ReceiveView> {
               ),
             ),
             const SizedBox(height: 4),
-            Text(r.filename, style: t.textTheme.bodyMedium, overflow: TextOverflow.ellipsis),
+            Text(
+              r.filename,
+              style: t.textTheme.bodyMedium,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _save,
@@ -609,7 +641,9 @@ class _ReceiveViewState extends State<ReceiveView> {
         padding: const EdgeInsets.all(12),
         child: Text(
           m,
-          style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onErrorContainer),
+          style: t.textTheme.bodySmall?.copyWith(
+            color: t.colorScheme.onErrorContainer,
+          ),
         ),
       ),
     );
@@ -648,23 +682,49 @@ class _StatsOverlay extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(s.status.name.toUpperCase(), style: t.textTheme.labelSmall?.copyWith(color: dim)),
+                Text(
+                  s.status.name.toUpperCase(),
+                  style: t.textTheme.labelSmall?.copyWith(color: dim),
+                ),
                 const Spacer(),
                 if (s.verified == true)
-                  Text('✓ VERIFIED (SHA-256)', style: t.textTheme.labelSmall?.copyWith(color: const Color(0xFF4ADE80), fontWeight: FontWeight.w700)),
+                  Text(
+                    '✓ VERIFIED (SHA-256)',
+                    style: t.textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF4ADE80),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 if (s.verified == false)
-                  Text('HASH MISMATCH', style: t.textTheme.labelSmall?.copyWith(color: const Color(0xFFFCA5A5))),
+                  Text(
+                    'HASH MISMATCH',
+                    style: t.textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFFFCA5A5),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 8),
-            LinearProgressIndicator(value: s.progress.clamp(0.0, 1.0), minHeight: 6),
+            LinearProgressIndicator(
+              value: s.progress.clamp(0.0, 1.0),
+              minHeight: 6,
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
-                Text('${s.unique} / ${s.k ?? '…'}', style: t.textTheme.bodyMedium),
+                Text(
+                  '${s.unique} / ${s.k ?? '…'}',
+                  style: t.textTheme.bodyMedium,
+                ),
                 const Spacer(),
                 if (s.fileName != null)
-                  Flexible(child: Text(s.fileName!, style: t.textTheme.bodySmall, overflow: TextOverflow.ellipsis)),
+                  Flexible(
+                    child: Text(
+                      s.fileName!,
+                      style: t.textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 8),
@@ -672,7 +732,11 @@ class _StatsOverlay extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _cell(t, 'Decode', '${s.decodeRate.toStringAsFixed(1)} fps'),
-                _cell(t, 'Speed', '${(s.bytesPerSecond / 1024).toStringAsFixed(1)} KB/s'),
+                _cell(
+                  t,
+                  'Speed',
+                  '${(s.bytesPerSecond / 1024).toStringAsFixed(1)} KB/s',
+                ),
                 _cell(t, 'ETA', _eta(s.etaSeconds)),
                 _cell(t, 'Dropped', '${s.droppedCount}'),
               ],
@@ -684,10 +748,13 @@ class _StatsOverlay extends StatelessWidget {
   }
 
   static Widget _cell(ThemeData t, String l, String v) => Column(
-        children: [
-          Text(l.toUpperCase(), style: t.textTheme.labelSmall?.copyWith(color: const Color(0xFF9AA4B2))),
-          const SizedBox(height: 2),
-          Text(v, style: t.textTheme.bodyMedium),
-        ],
-      );
+    children: [
+      Text(
+        l.toUpperCase(),
+        style: t.textTheme.labelSmall?.copyWith(color: const Color(0xFF9AA4B2)),
+      ),
+      const SizedBox(height: 2),
+      Text(v, style: t.textTheme.bodyMedium),
+    ],
+  );
 }
