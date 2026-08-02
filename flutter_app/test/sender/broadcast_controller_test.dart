@@ -143,10 +143,7 @@ class _SyncEncodeBackend implements EncodeBackend {
     required List<int> esis,
     required List<Uint8List?> frameBytes,
   }) {
-    _ready.add((
-      frameIndex,
-      [for (final bytes in frameBytes) _encode(bytes)],
-    ));
+    _ready.add((frameIndex, [for (final bytes in frameBytes) _encode(bytes)]));
   }
 
   QrMatrix? _encode(Uint8List? bytes) {
@@ -178,7 +175,8 @@ void main() {
     expect(
       dylib,
       isNotNull,
-      reason: 'Rust dylib missing — build flutter_app/rust (cargo build) '
+      reason:
+          'Rust dylib missing — build flutter_app/rust (cargo build) '
           'before running these tests',
     );
     await ensureRustLib(dylibPath: dylib);
@@ -191,27 +189,32 @@ void main() {
   });
 
   /// Mounts the ticker harness and creates a controller over [prepared]
-  /// (default: the real shared transfer) with the default settings.
+  /// (default: the real shared transfer) with the given [settings] (default:
+  /// the transfer's own settings).
   Future<BroadcastController> spawnController(
     WidgetTester tester, {
     PreparedTransfer? prepared,
     ValueChanged<SenderStats>? onStats,
+    TransferSettings? settings,
   }) async {
     late TickerProvider vsync;
-    await tester.pumpWidget(_TickerHost(
-      builder: (context, provider) {
-        vsync = provider;
-        return const SizedBox.shrink();
-      },
-    ));
+    await tester.pumpWidget(
+      _TickerHost(
+        builder: (context, provider) {
+          vsync = provider;
+          return const SizedBox.shrink();
+        },
+      ),
+    );
     final transfer = prepared ?? sharedPrepared;
+    final effectiveSettings = settings ?? transfer.info.settings;
     return BroadcastController(
       prepared: transfer,
-      settings: transfer.info.settings,
+      settings: effectiveSettings,
       vsync: vsync,
       onStats: onStats,
       encode: _SyncEncodeBackend(
-        version: bytesPerTile[transfer.info.settings.bytesPerTile]!.version,
+        version: bytesPerTile[effectiveSettings.bytesPerTile]!.version,
       ),
     );
   }
@@ -279,7 +282,11 @@ void main() {
         await tester.pump(tick); // frames 1..31
       }
       expect(controller.tickCount, 32);
-      expect(controller.lastFrameMeta, isFalse, reason: 'frame 31 is data-only');
+      expect(
+        controller.lastFrameMeta,
+        isFalse,
+        reason: 'frame 31 is data-only',
+      );
       expect(controller.currentFrame, hasLength(controller.tilesPerFrame));
 
       await tester.pump(tick); // frame 32
@@ -384,6 +391,227 @@ void main() {
       expect(controller.currentFrame[3], isNull);
       expect(controller.droppedTicks, 3);
 
+      controller.stop();
+      controller.dispose();
+    });
+  });
+
+  group('dual-lane (row2/column2)', () {
+    const row2Settings = TransferSettings(
+      bytesPerTile: BytesPerTileId.oneK,
+      layout: LayoutId.row2,
+      targetFps: 15,
+      highRefresh: false,
+    );
+    const column2Settings = TransferSettings(
+      bytesPerTile: BytesPerTileId.oneK,
+      layout: LayoutId.column2,
+      targetFps: 15,
+      highRefresh: false,
+    );
+
+    /// Renders frames 0..[frames-1] and returns each frame's esi schedule.
+    Future<List<List<int>>> driveEsis(
+      WidgetTester tester, {
+      required TransferSettings settings,
+      required int frames,
+    }) async {
+      final controller = await spawnController(tester, settings: settings);
+      final history = <List<int>>[];
+      for (var i = 0; i < frames; i++) {
+        controller.renderFrame(i);
+        history.add(List.of(controller.lastEsis));
+      }
+      controller.stop();
+      controller.dispose();
+      return history;
+    }
+
+    testWidgets('row2: even ticks update lane 0, odd ticks lane 1', (
+      tester,
+    ) async {
+      final esis = await driveEsis(tester, settings: row2Settings, frames: 8);
+      expect(
+        esis.every((e) => e.length == 2),
+        isTrue,
+        reason: 'dual-lane frames are exactly 2 tiles',
+      );
+      // Lane 0 updates on even ticks and holds on the following odd tick.
+      expect(esis[0][0], isNot(esis[2][0]), reason: 'lane 0 updates on tick 2');
+      expect(esis[2][0], isNot(esis[4][0]), reason: 'lane 0 updates on tick 4');
+      expect(esis[4][0], isNot(esis[6][0]), reason: 'lane 0 updates on tick 6');
+      expect(esis[0][0], esis[1][0], reason: 'lane 0 holds on tick 0→1');
+      expect(esis[2][0], esis[3][0], reason: 'lane 0 holds on tick 2→3');
+      expect(esis[4][0], esis[5][0], reason: 'lane 0 holds on tick 4→5');
+      expect(esis[6][0], esis[7][0], reason: 'lane 0 holds on tick 6→7');
+      // Lane 1 updates on odd ticks and holds on the following even tick.
+      expect(esis[1][1], isNot(esis[3][1]), reason: 'lane 1 updates on tick 3');
+      expect(esis[3][1], isNot(esis[5][1]), reason: 'lane 1 updates on tick 5');
+      expect(esis[5][1], isNot(esis[7][1]), reason: 'lane 1 updates on tick 7');
+      expect(esis[1][1], esis[2][1], reason: 'lane 1 holds on tick 1→2');
+      expect(esis[3][1], esis[4][1], reason: 'lane 1 holds on tick 3→4');
+      expect(esis[5][1], esis[6][1], reason: 'lane 1 holds on tick 5→6');
+      // Lanes never show the same esi on one tick.
+      for (var i = 0; i < esis.length; i++) {
+        expect(esis[i][0], isNot(esis[i][1]), reason: 'tick $i lanes distinct');
+      }
+    });
+
+    testWidgets('each lane stays constant between its updates', (tester) async {
+      final controller = await spawnController(tester, settings: row2Settings);
+      controller.renderFrame(0);
+      final esis0 = List.of(controller.lastEsis);
+      controller.renderFrame(1);
+      final esis1 = List.of(controller.lastEsis);
+      controller.renderFrame(2);
+      final esis2 = List.of(controller.lastEsis);
+      expect(esis1[0], esis0[0], reason: 'lane 0 holds across ticks 0→1');
+      expect(esis2[1], esis1[1], reason: 'lane 1 holds across ticks 1→2');
+      expect(controller.lastEsis, hasLength(2));
+      controller.stop();
+      controller.dispose();
+    });
+
+    testWidgets(
+      'meta tick puts META in slot 0 only; slot 1 still carries data',
+      (tester) async {
+        final controller = await spawnController(
+          tester,
+          settings: row2Settings,
+        );
+        for (var i = 0; i < 32; i++) {
+          controller.renderFrame(i);
+        }
+        expect(
+          controller.lastFrameMeta,
+          isFalse,
+          reason: 'frame 31 is data-only',
+        );
+        controller.renderFrame(32);
+        expect(
+          controller.lastFrameMeta,
+          isTrue,
+          reason: 'frame 32 is a meta tick',
+        );
+        expect(controller.lastEsis, hasLength(2));
+        // Slot 0 is byte-identical to a fresh encode of the META frame.
+        final metaQr = encodeQrBytes(
+          sharedPrepared.metaFrames.first,
+          version: controller.version,
+        );
+        final slot0 = controller.currentFrame.first!;
+        expect(slot0.size, metaQr.size);
+        expect(listEquals(slot0.modules, metaQr.modules), isTrue);
+        // Slot 1 still carries its scheduled data esi (a valid pool index).
+        final k = sharedPrepared.info.k;
+        final repair = (k * repairExtraFactor).ceil() + repairExtraMin;
+        final expected = nextEsiDualLane(k, repair, 32);
+        expect(
+          controller.lastEsis[1],
+          expected[1],
+          reason: 'slot 1 is the lane-1 data esi of the dual-lane schedule',
+        );
+        expect(controller.lastEsis[1], greaterThanOrEqualTo(0));
+        expect(
+          controller.currentFrame[1],
+          isNotNull,
+          reason: 'slot 1 QR encoded',
+        );
+        controller.stop();
+        controller.dispose();
+      },
+    );
+
+    testWidgets(
+      'all emitted esis resolve via the FramePool across a full cycle',
+      (tester) async {
+        final controller = await spawnController(
+          tester,
+          settings: row2Settings,
+        );
+        final k = sharedPrepared.info.k;
+        final repair = (k * repairExtraFactor).ceil() + repairExtraMin;
+        final poolSize = k + repair;
+        var sawRepair = false;
+        for (var i = 0; i < 2 * poolSize; i++) {
+          // A RangeError/StateError here means a scheduled esi could not
+          // resolve via the FramePool (missing source / beyond the repair
+          // cache).
+          controller.renderFrame(i);
+          final esis = controller.lastEsis;
+          expect(esis, hasLength(2));
+          for (final esi in esis) {
+            expect(
+              esi,
+              inInclusiveRange(0, poolSize - 1),
+              reason: 'frame $i slot must be a valid pool index',
+            );
+            if (esi >= k) sawRepair = true;
+          }
+        }
+        expect(
+          sawRepair,
+          isTrue,
+          reason: 'repair esis (>= k) appear over a full cycle',
+        );
+        controller.stop();
+        controller.dispose();
+      },
+    );
+
+    testWidgets('column2 behaves identically', (tester) async {
+      // One controller drives the whole test (the ticker harness is a single
+      // TickerProvider, so a second controller in the same test is not allowed).
+      final controller = await spawnController(
+        tester,
+        settings: column2Settings,
+      );
+      final esis = <List<int>>[];
+      for (var i = 0; i < 6; i++) {
+        controller.renderFrame(i);
+        esis.add(List.of(controller.lastEsis));
+      }
+      expect(esis, hasLength(6));
+      expect(esis.every((e) => e.length == 2), isTrue);
+      // Lane 0 updates on even ticks, lane 1 on odd; each holds its esi for
+      // exactly 2 ticks — the same dual-lane schedule as row2.
+      expect(
+        esis[0][0],
+        isNot(esis[2][0]),
+        reason: 'lane 0 updates on even tick 2',
+      );
+      expect(
+        esis[2][0],
+        isNot(esis[4][0]),
+        reason: 'lane 0 updates on even tick 4',
+      );
+      expect(esis[0][0], esis[1][0], reason: 'lane 0 holds on tick 0→1');
+      expect(esis[2][0], esis[3][0], reason: 'lane 0 holds on tick 2→3');
+      expect(
+        esis[1][1],
+        isNot(esis[3][1]),
+        reason: 'lane 1 updates on odd tick 3',
+      );
+      expect(esis[1][1], esis[2][1], reason: 'lane 1 holds on tick 1→2');
+      expect(esis[3][1], esis[4][1], reason: 'lane 1 holds on tick 3→4');
+      for (var i = 0; i < esis.length; i++) {
+        expect(esis[i][0], isNot(esis[i][1]), reason: 'tick $i lanes distinct');
+      }
+      // column2 meta tick: META in slot 0, slot 1 data.
+      for (var i = 6; i <= 32; i++) {
+        controller.renderFrame(i);
+      }
+      expect(controller.lastFrameMeta, isTrue);
+      expect(controller.lastEsis, hasLength(2));
+      final k = sharedPrepared.info.k;
+      final repair = (k * repairExtraFactor).ceil() + repairExtraMin;
+      final expected = nextEsiDualLane(k, repair, 32);
+      expect(controller.lastEsis[1], expected[1]);
+      expect(
+        controller.currentFrame.first,
+        isNotNull,
+        reason: 'META QR encoded',
+      );
       controller.stop();
       controller.dispose();
     });

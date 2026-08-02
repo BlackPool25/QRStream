@@ -37,7 +37,11 @@ const int _readyFrameCap = 32;
 
 /// One completed frame from the encode backend: its tiles plus the round-robin
 /// esi schedule they carry (so the view can key cached tile bitmaps by esi).
-typedef DrainedFrame = ({int frameIndex, List<QrMatrix?> tiles, List<int> esis});
+typedef DrainedFrame = ({
+  int frameIndex,
+  List<QrMatrix?> tiles,
+  List<int> esis,
+});
 
 /// Broadcast display controller for one prepared transfer.
 class BroadcastController {
@@ -59,27 +63,30 @@ class BroadcastController {
     EncodeBackend? encode,
     int canvasWidth = 0,
     int canvasHeight = 0,
-  })  : _prepared = prepared,
-        _settings = settings,
-        // The public parameter cannot be an initializing formal for the
-        // private `_onStats` / `_onFramesDrained` fields.
-        // ignore: prefer_initializing_formals
-        _onStats = onStats,
-        // ignore: prefer_initializing_formals
-        _onFramesDrained = onFramesDrained,
-        _pool = FramePool(
-          k: prepared.info.k,
-          dataFrames: () => prepared.dataFrames,
-          // core's repairFrames slices off `k` symbols assuming encodeRepair
-          // emits a K-source prefix, but the real FFI facade returns exactly
-          // `count` repair packets — request count + k so the slice yields
-          // `count` frames. If core is ever fixed, an over-long cache is
-          // harmless (the pool never indexes past repairAvailable).
-          repairFrames: (count) =>
-              repairFrames(prepared, count + prepared.info.k),
-        ),
-        currentFps = resolvePacing(settings, canvasWidth, canvasHeight)
-            .effectiveFps {
+  }) : _prepared = prepared,
+       _settings = settings,
+       // The public parameter cannot be an initializing formal for the
+       // private `_onStats` / `_onFramesDrained` fields.
+       // ignore: prefer_initializing_formals
+       _onStats = onStats,
+       // ignore: prefer_initializing_formals
+       _onFramesDrained = onFramesDrained,
+       _pool = FramePool(
+         k: prepared.info.k,
+         dataFrames: () => prepared.dataFrames,
+         // core's repairFrames slices off `k` symbols assuming encodeRepair
+         // emits a K-source prefix, but the real FFI facade returns exactly
+         // `count` repair packets — request count + k so the slice yields
+         // `count` frames. If core is ever fixed, an over-long cache is
+         // harmless (the pool never indexes past repairAvailable).
+         repairFrames: (count) =>
+             repairFrames(prepared, count + prepared.info.k),
+       ),
+       currentFps = resolvePacing(
+         settings,
+         canvasWidth,
+         canvasHeight,
+       ).effectiveFps {
     _version = bytesPerTile[settings.bytesPerTile]!.version;
     _grid = layouts[settings.layout]!;
     _tilesPerFrame = _grid.cols * _grid.rows;
@@ -208,7 +215,9 @@ class BroadcastController {
     }
     _lastRenderTimeMs = nowMs;
 
-    _workStopwatch..reset()..start();
+    _workStopwatch
+      ..reset()
+      ..start();
     // Keep the worker ahead of the rendered frame.
     while (_nextRequest < _renderedTicks + _lookaheadFrames) {
       _requestFrame(_nextRequest);
@@ -230,18 +239,44 @@ class BroadcastController {
 
   void _requestFrame(int frameIndex) {
     final showMeta = frameIndex % metadataRebroadcastEvery == 0;
-    final dataTiles = showMeta ? _tilesPerFrame - 1 : _tilesPerFrame;
-    final esis =
-        nextEsiRoundRobin(_pool.k, _pool.repairAvailable, frameIndex, dataTiles);
     final reqEsis = <int>[];
     final reqBytes = <Uint8List?>[];
-    if (showMeta) {
-      reqEsis.add(metaSlotEsi);
-      reqBytes.add(_prepared.metaFrames.first);
-    }
-    for (final esi in esis) {
-      reqEsis.add(esi);
-      reqBytes.add(_pool.frameBytes(esi));
+    if (isDualLaneLayout(_settings.layout)) {
+      final laneEsis = nextEsiDualLane(
+        _pool.k,
+        _pool.repairAvailable,
+        frameIndex,
+      );
+      if (showMeta) {
+        // Position-stable META in lane 0; slot 1 carries its scheduled data
+        // esi (same dataTiles = tilesPerFrame - 1 semantics as the grid
+        // layouts, but for dual-lane the META replaces lane 0's tile).
+        reqEsis.add(metaSlotEsi);
+        reqBytes.add(_prepared.metaFrames.first);
+        reqEsis.add(laneEsis[1]);
+        reqBytes.add(_pool.frameBytes(laneEsis[1]));
+      } else {
+        for (final esi in laneEsis) {
+          reqEsis.add(esi);
+          reqBytes.add(_pool.frameBytes(esi));
+        }
+      }
+    } else {
+      final dataTiles = showMeta ? _tilesPerFrame - 1 : _tilesPerFrame;
+      final esis = nextEsiRoundRobin(
+        _pool.k,
+        _pool.repairAvailable,
+        frameIndex,
+        dataTiles,
+      );
+      if (showMeta) {
+        reqEsis.add(metaSlotEsi);
+        reqBytes.add(_prepared.metaFrames.first);
+      }
+      for (final esi in esis) {
+        reqEsis.add(esi);
+        reqBytes.add(_pool.frameBytes(esi));
+      }
     }
     _encode.requestFrame(
       frameIndex: frameIndex,
@@ -275,10 +310,20 @@ class BroadcastController {
     }
   }
 
-  /// Recomputes the round-robin esi schedule for [frameIndex] and pairs it
-  /// with the tile list the backend produced.
+  /// Recomputes the esi schedule for [frameIndex] and pairs it with the tile
+  /// list the backend produced. For dual-lane layouts this is the same pure
+  /// [nextEsiDualLane] call [_requestFrame] used — the META slot-0 override
+  /// lives only in the requested tile bytes, exactly like the grid layouts'
+  /// `_frameWithEsis` returns the data-only round-robin schedule on meta ticks.
   DrainedFrame _frameWithEsis(int frameIndex, List<QrMatrix?> tiles) {
     final showMeta = frameIndex % metadataRebroadcastEvery == 0;
+    if (isDualLaneLayout(_settings.layout)) {
+      return (
+        frameIndex: frameIndex,
+        tiles: tiles,
+        esis: nextEsiDualLane(_pool.k, _pool.repairAvailable, frameIndex),
+      );
+    }
     return (
       frameIndex: frameIndex,
       tiles: tiles,
@@ -307,15 +352,18 @@ class BroadcastController {
     if (onStats == null || nowMs - _lastStatsTimeMs < 500) return;
     final dtMs = nowMs - _lastStatsTimeMs;
     final dtTicks = _renderedTicks - _lastStatsTickCount;
-    onStats(SenderStats(
-      tickCount: _renderedTicks,
-      fps: dtMs > 0 ? (dtTicks / dtMs * 1000).round() : 0,
-      droppedTicks: _failedTicks,
-      avgTickMs:
-          _renderedTicks > 0 ? (nowMs / _renderedTicks * 10).round() / 10 : 0,
-      layout: _settings.layout,
-      k: _pool.k,
-    ));
+    onStats(
+      SenderStats(
+        tickCount: _renderedTicks,
+        fps: dtMs > 0 ? (dtTicks / dtMs * 1000).round() : 0,
+        droppedTicks: _failedTicks,
+        avgTickMs: _renderedTicks > 0
+            ? (nowMs / _renderedTicks * 10).round() / 10
+            : 0,
+        layout: _settings.layout,
+        k: _pool.k,
+      ),
+    );
     _lastStatsTimeMs = nowMs;
     _lastStatsTickCount = _renderedTicks;
   }

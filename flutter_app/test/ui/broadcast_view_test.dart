@@ -104,13 +104,13 @@ class _FakeEncoder implements FountainEncoder {
 
   @override
   List<EncodedSymbol> encodeRepair(int count) => <EncodedSymbol>[
-        ..._sources,
-        for (var i = 0; i < count; i++)
-          EncodedSymbol(
-            bytes: _symbolBytes(sourceSymbolCount + i),
-            esi: sourceSymbolCount + i,
-          ),
-      ];
+    ..._sources,
+    for (var i = 0; i < count; i++)
+      EncodedSymbol(
+        bytes: _symbolBytes(sourceSymbolCount + i),
+        esi: sourceSymbolCount + i,
+      ),
+  ];
 
   @override
   void dispose() {
@@ -145,13 +145,16 @@ class _FakeFactory implements FountainFactory {
 
 /// Builds a real prepared transfer through the core pipeline with the fake
 /// factory.
-Future<PreparedTransfer> _buildPrepared({_FakeFactory? factory}) =>
-    prepareTransfer(
-      file: _randomBytes(2048),
-      filename: 'f.bin',
-      mime: 'application/octet-stream',
-      factory: factory ?? _FakeFactory(),
-    );
+Future<PreparedTransfer> _buildPrepared({
+  _FakeFactory? factory,
+  TransferSettings? settings,
+}) => prepareTransfer(
+  file: _randomBytes(2048),
+  filename: 'f.bin',
+  mime: 'application/octet-stream',
+  factory: factory ?? _FakeFactory(),
+  settings: settings,
+);
 
 /// Decodes the `enable` bool from a pigeon ToggleMessage payload: the outer
 /// StandardCodec list holds one ToggleMessage, which itself encodes as the
@@ -240,6 +243,46 @@ void main() {
     expect(find.textContaining('/s'), findsOneWidget); // live rate
   });
 
+  testWidgets('renders a dual-lane row2 broadcast end-to-end', (tester) async {
+    const row2Settings = TransferSettings(
+      bytesPerTile: BytesPerTileId.oneK,
+      layout: LayoutId.row2,
+      targetFps: 15,
+      highRefresh: false,
+    );
+    final prepared = await _buildPrepared(settings: row2Settings);
+
+    await _pumpView(tester, prepared);
+
+    QrGridPainter painter() =>
+        tester
+                .widget<CustomPaint>(
+                  find.byWidgetPredicate(
+                    (w) => w is CustomPaint && w.painter is QrGridPainter,
+                  ),
+                )
+                .painter!
+            as QrGridPainter;
+
+    // First tick establishes the Ticker start; the second renders frame 0.
+    await tester.pump(const Duration(milliseconds: 67));
+    await tester.pump(const Duration(milliseconds: 67));
+    final frame0 = painter();
+    expect(frame0.layout, LayoutId.row2);
+    expect(frame0.tiles, hasLength(2), reason: 'row2 renders exactly 2 tiles');
+    expect(frame0.esis, hasLength(2));
+
+    // The dual-lane stream keeps advancing frames, still two tiles per frame.
+    await tester.pump(const Duration(milliseconds: 67));
+    final frame1 = painter();
+    expect(frame1.tiles, hasLength(2));
+    expect(
+      identical(frame1.tiles, frame0.tiles),
+      isFalse,
+      reason: 'tiles advance per frame',
+    );
+  });
+
   testWidgets('the stage background stays espresso under a light app theme', (
     tester,
   ) async {
@@ -295,7 +338,9 @@ void main() {
     expect(toggles, <bool>[true, false]);
   });
 
-  testWidgets('fullscreen toggles the immersive system UI mode', (tester) async {
+  testWidgets('fullscreen toggles the immersive system UI mode', (
+    tester,
+  ) async {
     final prepared = await _buildPrepared();
 
     await _pumpView(tester, prepared);
@@ -345,38 +390,48 @@ void main() {
     expect(overlayOpacity(), 1);
   });
 
-  testWidgets('the painter reads the live frame every tick, not a stale snapshot', (
-    tester,
-  ) async {
-    // The stale-snapshot bug: the painter captured `currentFrame` at build
-    // time and only rebuilt on the ~500ms stats tick, so between rebuilds the
-    // stage repainted the last-built (empty/stale) tiles — ~1-2 fps on screen
-    // even though the controller applied frames at the right cadence.
-    final prepared = await _buildPrepared();
-    await _pumpView(tester, prepared);
+  testWidgets(
+    'the painter reads the live frame every tick, not a stale snapshot',
+    (tester) async {
+      // The stale-snapshot bug: the painter captured `currentFrame` at build
+      // time and only rebuilt on the ~500ms stats tick, so between rebuilds the
+      // stage repainted the last-built (empty/stale) tiles — ~1-2 fps on screen
+      // even though the controller applied frames at the right cadence.
+      final prepared = await _buildPrepared();
+      await _pumpView(tester, prepared);
 
-    QrGridPainter painter() => tester
-        .widget<CustomPaint>(
-          find.byWidgetPredicate(
-            (w) => w is CustomPaint && w.painter is QrGridPainter,
-          ),
-        )
-        .painter! as QrGridPainter;
+      QrGridPainter painter() =>
+          tester
+                  .widget<CustomPaint>(
+                    find.byWidgetPredicate(
+                      (w) => w is CustomPaint && w.painter is QrGridPainter,
+                    ),
+                  )
+                  .painter!
+              as QrGridPainter;
 
-    // First tick establishes the Ticker start; the second renders frame 0.
-    await tester.pump(const Duration(milliseconds: 67));
-    await tester.pump(const Duration(milliseconds: 67));
-    final frame0 = painter();
-    expect(frame0.tiles, hasLength(4), reason: 'frame 0 tiles reached the painter');
+      // First tick establishes the Ticker start; the second renders frame 0.
+      await tester.pump(const Duration(milliseconds: 67));
+      await tester.pump(const Duration(milliseconds: 67));
+      final frame0 = painter();
+      expect(
+        frame0.tiles,
+        hasLength(4),
+        reason: 'frame 0 tiles reached the painter',
+      );
 
-    // The next tick renders frame 1 — no stats rebuild in between — and the
-    // painter must show the NEW tiles, not the previous snapshot.
-    await tester.pump(const Duration(milliseconds: 67));
-    final frame1 = painter();
-    expect(identical(frame1.tiles, frame0.tiles), isFalse,
-        reason: 'tiles advanced per frame (stale-snapshot bug regression)');
-    expect(frame1.tiles, hasLength(4));
-  });
+      // The next tick renders frame 1 — no stats rebuild in between — and the
+      // painter must show the NEW tiles, not the previous snapshot.
+      await tester.pump(const Duration(milliseconds: 67));
+      final frame1 = painter();
+      expect(
+        identical(frame1.tiles, frame0.tiles),
+        isFalse,
+        reason: 'tiles advanced per frame (stale-snapshot bug regression)',
+      );
+      expect(frame1.tiles, hasLength(4));
+    },
+  );
 
   testWidgets('stop calls onStop and disposes the encoder (factory spy)', (
     tester,

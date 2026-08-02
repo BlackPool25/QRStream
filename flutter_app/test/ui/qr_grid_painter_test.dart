@@ -52,15 +52,17 @@ void main() {
     tester,
   ) async {
     const canvasPx = 116; // version 1 → 29 modules → ppm 4
-    final data = (await tester.runAsync(() => rasterize(
-          QrGridPainter(
-            tiles: [singleModuleMatrix()],
-            layout: qrc.LayoutId.single,
-            version: 1,
-          ),
-          canvasPx.toDouble(),
-          1.0,
-        )))!;
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(
+          tiles: [singleModuleMatrix()],
+          layout: qrc.LayoutId.single,
+          version: 1,
+        ),
+        canvasPx.toDouble(),
+        1.0,
+      ),
+    ))!;
 
     // Quiet zone 4 → module (2,2) sits at pixel (2+4)*4 = 24, centered in the
     // 52px tile (tileSide=(5+8)*4) inside the 116px canvas → offset (116-52)/2.
@@ -70,7 +72,10 @@ void main() {
 
     // The module block is white and exactly 4×4 px…
     expect(pixel(data, canvasPx, moduleX, moduleY), const Color(0xFFFFFFFF));
-    expect(pixel(data, canvasPx, moduleX + 3, moduleY + 3), const Color(0xFFFFFFFF));
+    expect(
+      pixel(data, canvasPx, moduleX + 3, moduleY + 3),
+      const Color(0xFFFFFFFF),
+    );
     // …and a neighbouring pixel inside the tile's quiet zone is espresso.
     expect(pixel(data, canvasPx, ox + 1, ox + 1), QrGridPainter.espresso);
     // A module that should be light stays espresso.
@@ -83,16 +88,85 @@ void main() {
     tester,
   ) async {
     const canvasPx = 116;
-    final data = (await tester.runAsync(() => rasterize(
-          QrGridPainter(
-            tiles: [null],
-            layout: qrc.LayoutId.single,
-            version: 1,
-          ),
-          canvasPx.toDouble(),
-          1.0,
-        )))!;
-    expect(pixel(data, canvasPx, canvasPx ~/ 2, canvasPx ~/ 2), QrGridPainter.espresso);
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(tiles: [null], layout: qrc.LayoutId.single, version: 1),
+        canvasPx.toDouble(),
+        1.0,
+      ),
+    ))!;
+    expect(
+      pixel(data, canvasPx, canvasPx ~/ 2, canvasPx ~/ 2),
+      QrGridPainter.espresso,
+    );
+  });
+
+  /// Module center of the single dark module of [singleModuleMatrix] in cell
+  /// (col, row) of a [layout] split canvas: cell geometry mirrors the painter
+  /// (cellW = canvas ~/ cols, cellH = canvas ~/ rows, ppm = min side ~/ 29 for
+  /// version 1, tileSide = (5 + 2*4) * ppm), plus the 4-module quiet zone.
+  ({int x, int y}) moduleCenter(
+    int canvasPx,
+    qrc.LayoutId layout,
+    int col,
+    int row,
+  ) {
+    final grid = qrc.layouts[layout]!;
+    final cellW = canvasPx ~/ grid.cols;
+    final cellH = canvasPx ~/ grid.rows;
+    final ppm = (cellW < cellH ? cellW : cellH) ~/ 29; // version 1 modules
+    final tileSide = (5 + 8) * ppm;
+    final ox = col * cellW + (cellW - tileSide) ~/ 2;
+    final oy = row * cellH + (cellH - tileSide) ~/ 2;
+    return (x: ox + (2 + 4) * ppm, y: oy + (2 + 4) * ppm);
+  }
+
+  testWidgets('row2 paints two tiles side by side', (tester) async {
+    const canvasPx = 232; // two 116px cells side by side
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(
+          tiles: [singleModuleMatrix(), singleModuleMatrix()],
+          layout: qrc.LayoutId.row2,
+          version: 1,
+        ),
+        canvasPx.toDouble(),
+        1.0,
+      ),
+    ))!;
+
+    final slot0 = moduleCenter(canvasPx, qrc.LayoutId.row2, 0, 0);
+    final slot1 = moduleCenter(canvasPx, qrc.LayoutId.row2, 1, 0);
+    // Both dark modules are painted…
+    expect(pixel(data, canvasPx, slot0.x, slot0.y), const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot1.x, slot1.y), const Color(0xFFFFFFFF));
+    // …side by side: slot 0 to the LEFT of slot 1 on the same row.
+    expect(slot1.x, greaterThan(slot0.x));
+    expect(slot1.y, slot0.y);
+  });
+
+  testWidgets('column2 paints stacked', (tester) async {
+    const canvasPx = 232; // two 116px cells stacked
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(
+          tiles: [singleModuleMatrix(), singleModuleMatrix()],
+          layout: qrc.LayoutId.column2,
+          version: 1,
+        ),
+        canvasPx.toDouble(),
+        1.0,
+      ),
+    ))!;
+
+    final slot0 = moduleCenter(canvasPx, qrc.LayoutId.column2, 0, 0);
+    final slot1 = moduleCenter(canvasPx, qrc.LayoutId.column2, 0, 1);
+    // Both dark modules are painted…
+    expect(pixel(data, canvasPx, slot0.x, slot0.y), const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot1.x, slot1.y), const Color(0xFFFFFFFF));
+    // …stacked: slot 0 ABOVE slot 1 on the same column.
+    expect(slot1.y, greaterThan(slot0.y));
+    expect(slot1.x, slot0.x);
   });
 
   testWidgets('physical-pixel layout sizes modules to the DPR', (tester) async {
@@ -104,16 +178,18 @@ void main() {
     // Rasterize at the LOGICAL size (toImage is 1:1 with the picture's
     // logical space): the physical layout places the module at
     // physicalCoord / dpr in that space.
-    final data = (await tester.runAsync(() => rasterize(
-          QrGridPainter(
-            tiles: [singleModuleMatrix()],
-            layout: qrc.LayoutId.single,
-            version: 27,
-            devicePixelRatio: dpr,
-          ),
-          logical,
-          1.0, // 1:1 raster — the painter's own scale(1/dpr) does the rest
-        )))!;
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(
+          tiles: [singleModuleMatrix()],
+          layout: qrc.LayoutId.single,
+          version: 27,
+          devicePixelRatio: dpr,
+        ),
+        logical,
+        1.0, // 1:1 raster — the painter's own scale(1/dpr) does the rest
+      ),
+    ))!;
 
     // version 27 → modules = 133; ppm = (360*3) ~/ 133 = 8 physical px.
     // Tile side = (5 + 8) * 8 = 104; offset = (1080 - 104) ~/ 2 = 488.
@@ -134,25 +210,25 @@ void main() {
     // rasterize, and decode with the same zxing2 reader the receiver's isolate
     // pool uses — the proof that the optimized painter still renders
     // camera-decodable QRs.
-    final payload = Uint8List.fromList(
-      List<int>.generate(40, (i) => i % 251),
-    );
+    final payload = Uint8List.fromList(List<int>.generate(40, (i) => i % 251));
     final matrix = encodeQrBytes(payload, version: 5);
     const dpr = 2.0;
     const logical = 180.0;
     // version 5 → modules = 45; ppm = (180*2) ~/ 45 = 8 physical px → the tile
     // fills the 180-logical canvas edge to edge (8*45 = 360 phys = 180 log).
     // Rasterize at the logical size so the QR fills the image.
-    final data = (await tester.runAsync(() => rasterize(
-          QrGridPainter(
-            tiles: [matrix],
-            layout: qrc.LayoutId.single,
-            version: 5,
-            devicePixelRatio: dpr,
-          ),
-          logical,
-          1.0,
-        )))!;
+    final data = (await tester.runAsync(
+      () => rasterize(
+        QrGridPainter(
+          tiles: [matrix],
+          layout: qrc.LayoutId.single,
+          version: 5,
+          devicePixelRatio: dpr,
+        ),
+        logical,
+        1.0,
+      ),
+    ))!;
 
     // Build the luminance source the decode pool uses (RGBA → gray).
     final luminance = Int32List(logical.round() * logical.round());
@@ -174,8 +250,9 @@ void main() {
       final hints = DecodeHints()..put(DecodeHintType.pureBarcode);
       try {
         final result = reader.decode(bitmap, hints: hints);
-        final segments = result.resultMetadata[ResultMetadataType.byteSegments]
-            as List<Int8List>;
+        final segments =
+            result.resultMetadata[ResultMetadataType.byteSegments]
+                as List<Int8List>;
         final decoded = Uint8List.fromList([for (final s in segments) ...s]);
         return ByteData.sublistView(decoded);
       } on ReaderException {
@@ -187,11 +264,18 @@ void main() {
     for (var i = 0; i < luminance.length; i++) {
       inverted[i] = 0xff000000 | (0xFFFFFF - (luminance[i] & 0xFFFFFF));
     }
-    final decoded =
-        decodeFrom(luminance) ?? decodeFrom(inverted);
-    expect(decoded, isNotNull, reason: 'stage QR must decode (normal or inverted)');
+    final decoded = decodeFrom(luminance) ?? decodeFrom(inverted);
     expect(
-      Uint8List.view(decoded!.buffer, decoded.offsetInBytes, decoded.lengthInBytes),
+      decoded,
+      isNotNull,
+      reason: 'stage QR must decode (normal or inverted)',
+    );
+    expect(
+      Uint8List.view(
+        decoded!.buffer,
+        decoded.offsetInBytes,
+        decoded.lengthInBytes,
+      ),
       equals(payload),
     );
   });
@@ -217,20 +301,20 @@ void main() {
 
     Future<ByteData> paint({bool blit = true}) async =>
         (await tester.runAsync(() async {
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      QrGridPainter(
-        tiles: [matrix],
-        esis: blit ? const [0] : const [],
-        images: blit ? <int, ui.Image>{0: image} : null,
-        layout: qrc.LayoutId.single,
-        version: 5,
-      ).paint(canvas, const Size(180, 180));
-      final img = await recorder.endRecording().toImage(180, 180);
-      final bytes = await img.toByteData();
-      img.dispose();
-      return bytes!;
-    }))!;
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          QrGridPainter(
+            tiles: [matrix],
+            esis: blit ? const [0] : const [],
+            images: blit ? <int, ui.Image>{0: image} : null,
+            layout: qrc.LayoutId.single,
+            version: 5,
+          ).paint(canvas, const Size(180, 180));
+          final img = await recorder.endRecording().toImage(180, 180);
+          final bytes = await img.toByteData();
+          img.dispose();
+          return bytes!;
+        }))!;
 
     final blitBytes = await paint(blit: true);
     final pathBytes = await paint(blit: false);
