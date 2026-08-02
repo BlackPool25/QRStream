@@ -5,7 +5,7 @@
 /// paints them full-bleed on the espresso stage via [QrGridPainter], repainting
 /// on the controller's frame signal. The overlay is deliberately minimal so
 /// the receiver camera sees as much clean QR as possible: one compact pill of
-/// transport controls (Fullscreen / Boost / Stop) at the top and a single
+/// transport controls (Fullscreen / Stop) at the top and a single
 /// dim live-stats line at the bottom. Fullscreen hides the system bars
 /// (immersive sticky) so the whole display is QR.
 ///
@@ -229,7 +229,7 @@ class _BroadcastViewState extends State<BroadcastView>
     );
   }
 
-  /// Compact transport controls: Fullscreen / Boost / Stop in one subtle pill.
+  /// Compact transport controls: Fullscreen / Stop in one subtle pill.
   Widget _controlsPill() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),

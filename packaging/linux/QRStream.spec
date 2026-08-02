@@ -73,5 +73,5 @@ cp %{buildroot}/%{_libdir}/qrstream/icon.png \
 %{_datadir}/icons/hicolor/256x256/apps/qrstream.png
 
 %changelog
-* Sat Aug 02 2026 QRStream <noreply@example.invalid> - 1.0.0-1
+* Sat Aug 02 2026 QRStream Maintainers <maintainers@qrstream.dev> - 1.0.0-1
 - Initial QRStream packaging (Flutter Linux release bundle).

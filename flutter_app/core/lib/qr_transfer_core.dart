@@ -1,4 +1,4 @@
-/// Pure-Dart core for the QR Data Transfer Flutter app.
+/// Pure-Dart core for the QRStream Flutter app.
 ///
 /// Holds all Flutter-independent logic (protocol, codec, sender, receiver,
 /// qr, theme constants). No Flutter SDK dependency — verifiable with
