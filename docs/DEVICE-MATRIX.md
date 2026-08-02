@@ -1,4 +1,4 @@
-# Device Matrix Runbook: QR Data Transfer
+# Device Matrix Runbook: QRStream
 
 Manual QA guide for verifying the offline QR file-transfer PWA on real hardware.
 A human (or a device-farm runner) follows this on iOS Safari, Android Chrome,
@@ -117,10 +117,10 @@ incompressible file is still under it).
 
 Real labels from the code, so a device-farm script can assert on them:
 
-- Home: buttons `SEND` and `RECEIVE`, heading "QR Data Transfer".
+- Home: buttons `SEND` and `RECEIVE`, heading "QRStream".
 - Sender, pick phase: "Send a file", button `Choose a file`, "or drag & drop it anywhere in this box".
 - Sender, settings phase (after preparing): a panel with the file name/size, a profile chip like `V27 · 2×2`, and selectors `Display fps` (12/15/24/30), `Bytes per tile` (1/2/2.5 KB), `Tile layout` (1×1/1×3/3×1/2×2/3×3, the auto-suggested one tagged `recommended`), `High refresh rate` (switch, enabled when a ≥ 90 Hz display is detected), and `Expected speed` (`~N KB/s · ~ETA`). Buttons `Begin broadcast` and `Different file`.
-- Sender, broadcasting: chips for filename, size, profile (`V27 · 2×2` style), estimated rate (`KB/s`), `k N`, `N.N fps`, `N dropped`, and elapsed time. Buttons: `Fullscreen`, `Boost`, `Stop`.
+- Sender, broadcasting: chips for filename, size, profile (`V27 · 2×2` style), estimated rate (`KB/s`), `k N`, `N.N fps`, `N dropped`, and elapsed time. Buttons: `Fullscreen`, `Stop`.
 - Receiver, idle: "Scan a broadcast", button `Start scanning`.
 - Receiver, scanning: chips `SCANNING` then `TRANSFERRING`; once complete, badge `✓ Verified — file complete` and button `Save file`. Errors show `Try again`.
 - Status overlay (bottom of the receiver): status chip (`IDLE`/`SCANNING`/`TRANSFERRING`/`COMPLETE`/`ERROR`), `✓ VERIFIED (SHA-256)` or `HASH MISMATCH` badge, a progress bar, `unique / k` counter, filename, and a 4-cell readout: `Decode` (fps), `Speed` (KB/s), `ETA`, `Dropped`.
@@ -167,7 +167,7 @@ here matches a real code path or UI element.
 1. **Install / offline**: open the app over a working recipe (§2), `Add to Home Screen`, close the tab, disable Wi-Fi/cellular, launch from the home screen. It must load fully (both wasm files precached) and show the home screen.
 2. **Camera permission**: tap `RECEIVE` → `Start scanning`. Safari prompts for camera; **Allow**. The view shows the live camera preview and the `SCANNING` chip.
 3. **Deny path**: restart the flow, deny the camera prompt. Expect the friendly "Camera permission was denied…" banner and a `Try again` button. No crash.
-4. **Send**: `SEND` → `Choose a file` → pick a fixture. Wait for preparation, then review the settings panel (auto-suggested layout and high-refresh; chip like `V27 · 2×2`). `Begin broadcast`. The QR grid is visible; `Fullscreen` works (iOS supports it since 12); `Boost` is a no-op if wake lock is unavailable (it silently stays off, which is expected).
+4. **Send**: `SEND` → `Choose a file` → pick a fixture. Wait for preparation, then review the settings panel (auto-suggested layout and high-refresh; chip like `V27 · 2×2`). `Begin broadcast`. The QR grid is visible; `Fullscreen` works (iOS supports it since 12); the wake lock is held automatically.
 5. **Receive**: point at a sender, keep steady. Progress advances (`unique / k`), `Decode` shows live fps, `Speed`/`ETA` populate, then `✓ VERIFIED (SHA-256)` and `✓ Verified — file complete`. `Save file` opens the iOS share sheet (download path, since iOS Safari has no File System Access API). Verify the downloaded name/extensions.
 6. **Orientation**: repeat a small transfer in portrait and in landscape. Both must work. Rotate the receiver mid-transfer: it should continue (see §7 for the documented limit).
 
@@ -176,7 +176,7 @@ here matches a real code path or UI element.
 1. **Install / offline**: `Add to Home screen`, close, go offline, relaunch. Must load offline from the precache.
 2. **Camera permission**: `Start scanning` → **Allow**. Camera preview + `SCANNING` chip.
 3. **Deny path**: deny once, expect the friendly banner and `Try again`.
-4. **Send**: same flow as iOS. `Fullscreen` and `Boost` both work; `Boost` requests the wake lock (screen stays awake), and the `Boost` button shows a pressed state (`aria-pressed`).
+4. **Send**: same flow as iOS. `Fullscreen` works; the wake lock is held automatically (screen stays awake).
 5. **Receive**: same flow. `Save file` uses the File System Access picker on Android Chrome (a real save dialog appears). Name it whatever you like; the "Saved as <name>" line reflects the picker's choice.
 6. **Orientation**: portrait and landscape both fine. Rotation mid-transfer recovers (or note the limit per §7).
 
@@ -184,14 +184,14 @@ here matches a real code path or UI element.
 
 1. **Install / offline**: the address-bar install icon appears (manifest is valid). Install, disconnect network, relaunch, app loads offline.
 2. **Camera (receiver role)**: `Start scanning` → **Allow**. Same overlay as phones. Save uses the File System Access picker; canceling it shows a "saving was cancelled" message and you can hit `Save file` again.
-3. **Send**: `Fullscreen` (F11-like, enters fullscreen on the QR stage), `Boost`, `Stop`. The `N.N fps` chip should read ~15.0 for the grid; `N dropped` should stay low.
+3. **Send**: `Fullscreen` (F11-like, enters fullscreen on the QR stage), `Stop`. The `N.N fps` chip should read ~15.0 for the grid; `N dropped` should stay low.
 4. **Drag & drop**: the dropzone accepts a dragged file (drag state highlights the box).
 5. **Orientation**: desktop is effectively landscape; window resize mid-broadcast re-scales the grid. Confirm it keeps decoding after a resize.
 
 ### Desktop Firefox
 
 1. **Install / offline**: add-to-home-screen equivalent (Firefox's "Install" in the menu), offline reload works.
-2. **Send**: grid renders, ~15.0 fps chip. Fullscreen and Boost work. Firefox is a supported sender (matrix row 9).
+2. **Send**: grid renders, ~15.0 fps chip. Fullscreen works; the wake lock is held automatically. Firefox is a supported sender (matrix row 9).
 3. **Camera**: if you test Firefox as a receiver, confirm the permission prompt and that `facingMode: environment` resolves (on a laptop with no rear camera this may pick the webcam; if it fails you get the typed "camera could not match the requested settings" message, which is the correct behavior).
 
 ### Safari macOS
@@ -210,7 +210,7 @@ it transfers at all. Do them once per device family and record the numbers.
 
 ### Near/far distance test (record max usable distance)
 
-1. Put the sender in fullscreen, boost on, brightness max.
+1. Put the sender in fullscreen (the wake lock keeps the screen on automatically), brightness max.
 2. Start a 1 MB broadcast. On the receiver, start scanning and slowly move it **backward** from ~30 cm until decodes stop (`Decode` drops to ~0.0 fps and `unique` stops climbing).
 3. Record that max distance. Expected ballpark: **40-70 cm** for phone-to-phone. Past ~70 cm the grid falls below the px/module floor and decodes vanish; too close (< ~30 cm on phones, < ~30 cm on laptop webcams) goes out of focus and blurs.
 4. Repeat moving **forward** to find the near-focus limit (where the QR goes soft).
@@ -311,11 +311,11 @@ Measured end-to-end numbers live in `docs/PERF.md` (§7); this table is the prac
 expectation band for manual runs, recorded with the default settings (2×2 grid, 1 KB tiles,
 15 fps target).
 
-| Payload              | Expected time                                                                                                                    | Notes                                                                                       |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1 MB                 | ~20-60 s                                                                                                                         | At default grid throughput; smaller text/PNG files are much faster (single-digit seconds).  |
-| 10 MB                | ~3-10 min                                                                                                                        | Longest practical transfer; battery/brightness matter, keep the sender plugged or boost on. |
-| Effective throughput | Default 2×2 / 1 KB / 15 fps measures ~44-56 KB/s (PERF.md §7); more tiles, larger tiles or higher fps (90 Hz+ display) go faster | The app defaults to 2×2 at 15 fps; raise it in the settings panel on capable hardware.      |
+| Payload              | Expected time                                                                                                                    | Notes                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 1 MB                 | ~20-60 s                                                                                                                         | At default grid throughput; smaller text/PNG files are much faster (single-digit seconds). |
+| 10 MB                | ~3-10 min                                                                                                                        | Longest practical transfer; battery/brightness matter, keep the sender plugged in.         |
+| Effective throughput | Default 2×2 / 1 KB / 15 fps measures ~44-56 KB/s (PERF.md §7); more tiles, larger tiles or higher fps (90 Hz+ display) go faster | The app defaults to 2×2 at 15 fps; raise it in the settings panel on capable hardware.     |
 
 Reading the on-screen numbers: the overlay's `Speed` is live KB/s over the last
 half-second, `ETA` is the projected remaining time from that speed, `Decode`
@@ -349,7 +349,7 @@ rows" column is the §5 row numbers that device participated in.
 | Deny path shows friendly error   |                            |       |
 | Send: pick → prepare → broadcast |                            |       |
 | Fullscreen button                |                            |       |
-| Boost / wake lock                |                            |       |
+| Wake lock (automatic)            |                            |       |
 | Receive: unique/k advances       |                            |       |
 | Receive: Speed + ETA shown       |                            |       |
 | VERIFIED badge appears           |                            |       |

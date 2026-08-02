@@ -1,4 +1,4 @@
-# THREAT-MODEL.md — QR Data Transfer (offline QR file-transfer PWA)
+# THREAT-MODEL.md — QRStream (offline QR file-transfer PWA)
 
 Status: **PASS WITH ACCEPTED RISKS** · Date: 2026-08-01 · Wave 6 T21
 
@@ -87,7 +87,7 @@ uses (src/receiver/orchestrate.ts:176–195).
 encryption. The sender's screen is the only exposure surface, and the app's
 privacy claim is scoped to that: "nothing leaves the room." Mitigation is
 physical, not technical: same-room, same-display, control who can see the
-screen (fullscreen + brightness-boost UI exist to make the intended receiver's
+screen (fullscreen + auto wake lock UI exist to make the intended receiver's
 job easier — src/ui/SenderBroadcast.tsx:76–96, src/sender/controls.ts:17–26 —
 not to hide the stream). No partial mitigation is possible without violating
 the no-pairing decision (any scheme that binds a receiver requires a shared
@@ -441,8 +441,7 @@ never leave the device in any form.
 **Runtime deps** (src/../package.json:20–27, locked by package-lock.json):
 `preact 10.29.7`, `@preact/signals 2.10.1`, `pako 3.0.1`, `raptorq 1.7.24`,
 `zxing-wasm 3.1.2`, `@ribpay/qr-code-generator 1.0.6`. Dev-only: vite/vitest/
-playwright/eslint/prettier/typescript/jsqr/pngjs — not shipped (`private: true`,
-package.json:47).
+playwright/eslint/prettier/typescript/jsqr/pngjs — not shipped (excluded from the bundle).
 
 - **`npm audit` (prod and dev, run 2026-08-01): `found 0 vulnerabilities`.**
 - **No high-risk patterns:** no `eval`/`new Function` in src or in the
