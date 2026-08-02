@@ -43,9 +43,10 @@ jobs:
             ~/.cargo/bin/cargo-ndk
           key: cargo-${{ runner.os }}-${{ hashFiles('flutter_app/rust/Cargo.lock') }}
 
-      # android/ and linux/ are gitignored; regenerate the scaffolding, then
-      # apply the committed templates (MainActivity, manifest, gradle, R8 rules)
-      # so the release build is reproducible from a fresh clone.
+      # android/, linux/ and windows/ are gitignored; regenerate the
+      # scaffolding, then apply the committed templates so the release build is
+      # reproducible from a fresh clone (the Linux templates carry the QRStream
+      # launcher icon + the qrstream/window fullscreen channel).
       - name: Generate platform scaffolding
         working-directory: flutter_app
         run: |
@@ -54,6 +55,9 @@ jobs:
           cp android_templates/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp android_templates/build.gradle.kts.template android/app/build.gradle.kts
           cp android_templates/proguard-rules.pro android/app/proguard-rules.pro
+          cp linux_templates/CMakeLists.txt linux/CMakeLists.txt
+          cp linux_templates/icon.png linux/runner/icon.png
+          cp linux_templates/my_application.cc linux/runner/my_application.cc
 
       - name: Rust release codec (Linux dylib)
         working-directory: flutter_app/rust
