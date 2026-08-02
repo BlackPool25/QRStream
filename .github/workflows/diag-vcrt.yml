@@ -10,40 +10,20 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -products * -property installationPath
-          Write-Host "VS at: $vsPath"
-          # Robust: find the newest MSVC redist version dir, no [version] cast.
           $redistRoot = "$vsPath\VC\Redist\MSVC"
-          Write-Host "RedistRoot exists: $(Test-Path $redistRoot)"
-          if (Test-Path $redistRoot) {
-            $redist = Get-ChildItem $redistRoot -Directory -ErrorAction SilentlyContinue |
-              Sort-Object Name -Descending | Select-Object -First 1
-            Write-Host "Redist dir: $($redist.FullName)"
-            $crtDir = "$($redist.FullName)\x64\Microsoft.VC143.CRT"
-            Write-Host "CRT dir exists: $(Test-Path $crtDir)"
-            if (Test-Path $crtDir) {
-              New-Item -ItemType Directory -Force -Path vcrt-out | Out-Null
-              Copy-Item "$crtDir\msvcp140.dll" vcrt-out\
-              Copy-Item "$crtDir\vcruntime140.dll" vcrt-out\
-              Copy-Item "$crtDir\vcruntime140_1.dll" vcrt-out\
-              Get-ChildItem vcrt-out | Select-Object Name, Length
-              exit 0
-            }
-          }
-          # Fallback: search the whole VS tree for the three DLLs in the same dir
-          Write-Host "FALLBACK: searching VS tree for msvcp140.dll (x64)"
-          $msvcp = Get-ChildItem "$vsPath" -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue |
+          Write-Host "RedistRoot: $redistRoot exists=$(Test-Path $redistRoot)"
+          # Find the directory that holds msvcp140.dll under the redist root
+          $msvcp = Get-ChildItem $redistRoot -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
-          Write-Host "found: $($msvcp.FullName)"
-          if ($msvcp) {
-            $dir = $msvcp.DirectoryName
-            New-Item -ItemType Directory -Force -Path vcrt-out | Out-Null
-            Copy-Item "$dir\msvcp140.dll" vcrt-out\
-            if (Test-Path "$dir\vcruntime140.dll") { Copy-Item "$dir\vcruntime140.dll" vcrt-out\ }
-            if (Test-Path "$dir\vcruntime140_1.dll") { Copy-Item "$dir\vcruntime140_1.dll" vcrt-out\ }
-            Get-ChildItem vcrt-out | Select-Object Name, Length
-            exit 0
+          Write-Host "msvcp140.dll: $($msvcp.FullName)"
+          $dir = $msvcp.DirectoryName
+          New-Item -ItemType Directory -Force -Path vcrt-out | Out-Null
+          Copy-Item "$dir\msvcp140.dll" vcrt-out\
+          Get-ChildItem $dir -Filter "vcruntime140*.dll" -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName vcrt-out\
+            Write-Host "copied $($_.Name)"
           }
-          exit 1
+          Get-ChildItem vcrt-out | Select-Object Name, Length
       - uses: actions/upload-artifact@v4
         with:
           name: vcrt-dlls
