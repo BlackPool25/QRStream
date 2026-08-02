@@ -1,5 +1,5 @@
 /**
- * Protocol constants — single source of truth for the QR transfer wire format.
+ * Protocol constants — single source of truth for the QRStream wire format.
  * Frame layout (30-byte header + payload + CRC32C): see wire.ts.
  */
 

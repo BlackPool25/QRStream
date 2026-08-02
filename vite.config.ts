@@ -18,8 +18,8 @@ export default defineConfig({
       // manifest-icon addition to avoid duplicate entries in the SW manifest.
       includeManifestIcons: false,
       manifest: {
-        name: 'QR Data Transfer',
-        short_name: 'QR Transfer',
+        name: 'QRStream',
+        short_name: 'QRStream',
         description:
           'Offline-first QR file-transfer PWA — broadcast files phone-to-phone with zero network',
         theme_color: '#0f1115',
@@ -56,15 +56,6 @@ export default defineConfig({
       },
     }),
   ],
-  // Custom domain fronted by cloudflared tunnel + nginx proxy: the Host header
-  // reaching Vite is the public domain, which is not on Vite's default
-  // allowlist — allow it explicitly for both the dev and preview servers.
-  server: {
-    allowedHosts: ['dev.shreyasjoshi.qzz.io'],
-  },
-  preview: {
-    allowedHosts: ['dev.shreyasjoshi.qzz.io'],
-  },
   test: {
     environment: 'node',
     include: [

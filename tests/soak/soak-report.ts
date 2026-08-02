@@ -14,7 +14,7 @@ export const REPORT_PATH = fileURLToPath(new URL('./soak-report.txt', import.met
 
 export function initReport(mode: 'default' | 'full'): void {
   const lines = [
-    'soak-report.txt — QR Data Transfer loss-model soak matrix',
+    'soak-report.txt — QRStream loss-model soak matrix',
     '================================================================',
     `generated : ${new Date().toISOString()}`,
     `mode      : ${mode}`,

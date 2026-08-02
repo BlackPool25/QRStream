@@ -51,7 +51,7 @@ function HomeView({
       <div className="brand-mark">
         <QrGlyph />
       </div>
-      <h1>QR Data Transfer</h1>
+      <h1>QRStream</h1>
       <p className="subtitle">
         Send files between devices, screen to camera. No pairing, no network, nothing leaves the
         room.

@@ -1,5 +1,5 @@
 /**
- * Performance envelope for the QR transfer path — measured budgets, not vibes.
+ * Performance envelope for the QRStream transfer path — measured budgets, not vibes.
  * Every number logged here comes from an actual run of this file; the full
  * report is docs/PERF.md. Budgets are generous (CI machines vary) but honest:
  * encode must fit work*1.5 <= frame delay, render < 16ms, decode <= 200ms/frame

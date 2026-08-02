@@ -24,7 +24,7 @@ test('service worker precaches both wasm modules and serves the app offline', as
   // Given a first load while online
   await page.goto('/')
   await page.evaluate(() => navigator.serviceWorker.ready)
-  await expect(page).toHaveTitle('QR Data Transfer')
+  await expect(page).toHaveTitle('QRStream')
 
   // Then the SW registration is active and the page is under its control
   const registration = await page.evaluate(async () => {
@@ -58,7 +58,7 @@ test('service worker precaches both wasm modules and serves the app offline', as
 
   // Then the app still renders — served from the SW's precache. The home
   // screen's two mode buttons are the stable content contract of the real UI.
-  await expect(page.getByText('QR Data Transfer')).toBeVisible()
+  await expect(page.getByText('QRStream')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Send a file' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Receive a file' })).toBeVisible()
 
