@@ -33,12 +33,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "3.44.0"
+          flutter-version: '3.44.8'
           cache: true
 
       - uses: dtolnay/rust-toolchain@stable
@@ -53,11 +53,16 @@ jobs:
         working-directory: flutter_app/rust
         run: cargo test
 
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
       - name: Core tests (standalone Dart)
         working-directory: flutter_app/core
         run: |
-          ~/dart-sdk/bin/dart analyze || true
-          ~/dart-sdk/bin/dart test || true
+          dart pub get
+          dart analyze
+          dart test
 
       - name: Flutter analyze + tests
         working-directory: flutter_app
