@@ -94,10 +94,24 @@ and sideload it (Settings → Security → install unknown apps).
 
 ### Windows
 
-The native Flutter app ships for Windows too (send; receive needs a camera and
-is Android-only). Download `qrstream-windows-x64.zip` from the
-[latest release](https://github.com/BlackPool25/QRStream/releases/latest),
-unzip, and run `qr_data_transfer.exe`.
+Download `qrstream-<version>-windows-setup.exe` (the installer) — or the
+portable `qrstream-windows-x64.zip` — from the
+[latest release](https://github.com/BlackPool25/QRStream/releases/latest).
+
+The installer and zip bundle the MSVC runtime app-local, so no Visual C++
+Redistributable install is needed; the brand icon is embedded in the exe.
+
+> **Windows Defender / SmartScreen:** QRStream ships unsigned (a code-signing
+> certificate costs money an OSS project doesn't have), so Defender may flag
+> the download with a *false-positive* `Trojan:Script/Wacatac.B!ml` warning —
+> a known machine-learning heuristic that repeatedly hits unsigned Flutter and
+> Rust binaries, not an actual infection. If you see it:
+>
+> 1. Windows Security → **Protection history** → the alert → **Allow on device**.
+> 2. SmartScreen "Windows protected your PC" → **More info → Run anyway**.
+>
+> The binaries are also submitted to the Microsoft Security Intelligence
+> false-positive portal after each release to train Defender's model.
 
 No install needed at all? The **PWA** runs in any modern browser (Chrome/Edge
 can install it as an app) — open it on the [deployed demo](https://github.com/BlackPool25/QRStream)
@@ -106,7 +120,7 @@ and it works fully offline after first load.
 ### All downloads
 
 Every release ships the Android APK, the Linux tarball, the Fedora/RHEL RPM,
-the Windows zip, and a `SHA256SUMS` checksum file:
+the Windows installer + zip, and a `SHA256SUMS` checksum file:
 
 [**Download QRStream on GitHub Releases →**](https://github.com/BlackPool25/QRStream/releases)
 

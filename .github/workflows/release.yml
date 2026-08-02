@@ -171,6 +171,21 @@ jobs:
         working-directory: flutter_app
         run: flutter build windows --release
 
+      # The Flutter docs require the MSVC runtime shipped app-local (the
+      # msvcp140/vcruntime140 DLLs) or the exe fails to start on machines
+      # without the VC++ redistributable — the released zip was missing them.
+      # Copy them from the VS 2022 redist on the runner next to the exe.
+      - name: Copy MSVC runtime DLLs
+        working-directory: flutter_app/build/windows/x64/runner/Release
+        shell: pwsh
+        run: |
+          $crt = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory |
+            Sort-Object { [version]($_.FullName -split 'MSVC\\')[-1].Split('\')[0] } -Descending | Select-Object -First 1
+          if (-not $crt) { throw "MSVC VC143 CRT not found on runner" }
+          Copy-Item "$($crt.FullName)\msvcp140.dll" .
+          Copy-Item "$($crt.FullName)\vcruntime140.dll" .
+          Copy-Item "$($crt.FullName)\vcruntime140_1.dll" .
+
       - name: Package Windows zip
         shell: bash
         working-directory: flutter_app/build/windows/x64/runner/Release
@@ -179,8 +194,26 @@ jobs:
           cp "$GITHUB_WORKSPACE/flutter_app/rust/target/release/qr_transfer_rust.dll" .
           powershell -Command "Compress-Archive -Path * -DestinationPath qrstream-windows-x64.zip -Force"
 
-      - name: Upload Windows zip to release
+      # Inno Setup 6.7.1 ships pre-installed on windows-latest; ISCC compiles
+      # packaging/windows/installer.iss into a signed-ready setup.exe that
+      # bundles the Release dir (exe + engine DLLs + Rust codec + MSVC runtime).
+      - name: Build Windows installer
+        working-directory: flutter_app
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found on runner" }
+          $ver = "${{ github.ref_name }}" -replace '^v'
+          $release = Join-Path $env:GITHUB_WORKSPACE 'flutter_app\build\windows\x64\runner\Release'
+          & $iscc "/DMyAppVersion=$ver" "/DReleaseDir=$release" ..\packaging\windows\installer.iss
+
+      - name: Upload Windows artifacts to release
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: flutter_app/build/windows/x64/runner/Release
-        run: gh release upload ${{ github.ref_name }} qrstream-windows-x64.zip --clobber
+        shell: bash
+        working-directory: flutter_app
+        run: |
+          ver="${{ github.ref_name }}"; ver="${ver#v}"
+          gh release upload ${{ github.ref_name }} \
+            build/windows/x64/runner/Release/qrstream-windows-x64.zip \
+            packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber

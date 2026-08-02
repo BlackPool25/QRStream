@@ -29,6 +29,13 @@ const String _defaultDebugDylibPath =
 const String _defaultReleaseDylibPath =
     '../rust/target/release/libqr_transfer_rust.so';
 
+/// Windows defaults: the codec DLL is `qr_transfer_rust.dll` (no `lib`
+/// prefix), and under `dart test` the cargo target dir is the same layout.
+const String _defaultWindowsDebugDylibPath =
+    '../rust/target/debug/qr_transfer_rust.dll';
+const String _defaultWindowsReleaseDylibPath =
+    '../rust/target/release/qr_transfer_rust.dll';
+
 Future<void>? _rustLibInit;
 
 /// Lazily initializes the Rust FFI library exactly once; every caller shares
@@ -79,7 +86,8 @@ String resolveDylibPath() => resolveDylibPathFor(Platform.isAndroid);
 /// Android branch is unit-testable without touching [Platform] (which cannot
 /// be mocked on this SDK).
 @visibleForTesting
-String resolveDylibPathFor(bool isAndroid) {
+String resolveDylibPathFor(bool isAndroid, {bool? isWindows}) {
+  final windows = isWindows ?? Platform.isWindows;
   if (isAndroid) {
     return 'libqr_transfer_rust.so';
   }
@@ -87,28 +95,37 @@ String resolveDylibPathFor(bool isAndroid) {
   if (fromEnv != null && fromEnv.isNotEmpty) {
     return fromEnv;
   }
-  for (final candidate in _dylibCandidates()) {
+  for (final candidate in dylibCandidates(isWindows: windows)) {
     if (File(candidate).existsSync()) {
       return candidate;
     }
   }
-  return _defaultDebugDylibPath;
+  return windows ? _defaultWindowsDebugDylibPath : _defaultDebugDylibPath;
 }
 
 /// Ordered dylib locations: bundled next to the executable, then the repo
 /// checkout relative to the executable (bundle at
 /// `flutter_app/build/linux/<arch>/<mode>/bundle`), then CWD-relative
-/// (`flutter run` from `flutter_app/`).
-Iterable<String> _dylibCandidates() sync* {
+/// (`flutter run` from `flutter_app/`). On Windows the codec ships as
+/// `qr_transfer_rust.dll` (no `lib` prefix, no `.so`), so the candidates use
+/// the platform's extension and are probed for existence in order.
+@visibleForTesting
+Iterable<String> dylibCandidates({required bool isWindows}) sync* {
   final exeDir = File(Platform.resolvedExecutable).parent.path;
-  yield '$exeDir/lib/libqr_transfer_rust.so';
+  yield isWindows
+      ? '$exeDir${Platform.pathSeparator}qr_transfer_rust.dll'
+      : '$exeDir${Platform.pathSeparator}lib${Platform.pathSeparator}libqr_transfer_rust.so';
   final repo = _walkUpToCheckout(exeDir);
   if (repo != null) {
-    yield '$repo/rust/target/debug/libqr_transfer_rust.so';
-    yield '$repo/rust/target/release/libqr_transfer_rust.so';
+    yield isWindows
+        ? '$repo${Platform.pathSeparator}rust${Platform.pathSeparator}target${Platform.pathSeparator}debug${Platform.pathSeparator}qr_transfer_rust.dll'
+        : '$repo${Platform.pathSeparator}rust${Platform.pathSeparator}target${Platform.pathSeparator}debug${Platform.pathSeparator}libqr_transfer_rust.so';
+    yield isWindows
+        ? '$repo${Platform.pathSeparator}rust${Platform.pathSeparator}target${Platform.pathSeparator}release${Platform.pathSeparator}qr_transfer_rust.dll'
+        : '$repo${Platform.pathSeparator}rust${Platform.pathSeparator}target${Platform.pathSeparator}release${Platform.pathSeparator}libqr_transfer_rust.so';
   }
-  yield _defaultDebugDylibPath;
-  yield _defaultReleaseDylibPath;
+  yield isWindows ? _defaultWindowsDebugDylibPath : _defaultDebugDylibPath;
+  yield isWindows ? _defaultWindowsReleaseDylibPath : _defaultReleaseDylibPath;
 }
 
 /// Walks up from [dir] (max 10 levels) looking for a directory containing

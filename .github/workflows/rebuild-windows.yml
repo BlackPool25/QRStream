@@ -1,0 +1,102 @@
+name: rebuild-windows
+
+# One-off Windows artifact rebuild for an EXISTING release (no tag push, no
+# re-trigger of the full release pipeline). Run from the Actions tab with the
+# target release tag, e.g. "v1.0.0". Uploads the fixed zip (MSVC runtime DLLs,
+# brand icon, Rust codec) and the new setup.exe installer to that release.
+#
+# Needed because the release workflow only fires on tag pushes, and the
+# Windows build must run on windows-latest (Flutter cannot cross-compile
+# Windows from Linux).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: 'Existing release tag to upload to (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.8'
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Generate Windows scaffolding
+        working-directory: flutter_app
+        run: |
+          flutter create --platforms=windows --org com.qrtransfer --project-name qr_data_transfer .
+          cp windows_templates/CMakeLists.txt windows/CMakeLists.txt
+          cp windows_templates/runner/CMakeLists.txt windows/runner/CMakeLists.txt
+          # flutter create scaffolds the default Flutter blue app_icon.ico;
+          # overlay the brand logo so the exe embeds the QRStream icon.
+          cp windows_templates/runner/resources/app_icon.ico windows/runner/resources/app_icon.ico
+
+      - name: Rust release codec (Windows dll)
+        working-directory: flutter_app/rust
+        run: cargo build --release
+
+      - name: Build Windows bundle
+        working-directory: flutter_app
+        run: flutter build windows --release
+
+      # The Flutter docs require the MSVC runtime shipped app-local (the
+      # msvcp140/vcruntime140 DLLs) or the exe fails to start on machines
+      # without the VC++ redistributable — the released zip was missing them.
+      # Copy them from the VS 2022 redist on the runner next to the exe.
+      - name: Copy MSVC runtime DLLs
+        working-directory: flutter_app/build/windows/x64/runner/Release
+        shell: pwsh
+        run: |
+          $crt = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory |
+            Sort-Object { [version]($_.FullName -split 'MSVC\\')[-1].Split('\')[0] } -Descending | Select-Object -First 1
+          if (-not $crt) { throw "MSVC VC143 CRT not found on runner" }
+          Copy-Item "$($crt.FullName)\msvcp140.dll" .
+          Copy-Item "$($crt.FullName)\vcruntime140.dll" .
+          Copy-Item "$($crt.FullName)\vcruntime140_1.dll" .
+
+      - name: Package Windows zip
+        shell: bash
+        working-directory: flutter_app/build/windows/x64/runner/Release
+        run: |
+          # The codec .dll must ship next to the exe for the FFI to find it.
+          cp "$GITHUB_WORKSPACE/flutter_app/rust/target/release/qr_transfer_rust.dll" .
+          powershell -Command "Compress-Archive -Path * -DestinationPath qrstream-windows-x64.zip -Force"
+
+      # Inno Setup 6.7.1 ships pre-installed on windows-latest; ISCC compiles
+      # packaging/windows/installer.iss into a setup.exe that bundles the
+      # Release dir (exe + engine DLLs + Rust codec + MSVC runtime).
+      - name: Build Windows installer
+        working-directory: flutter_app
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found on runner" }
+          $ver = "${{ inputs.release-tag }}" -replace '^v'
+          $release = Join-Path $env:GITHUB_WORKSPACE 'flutter_app\build\windows\x64\runner\Release'
+          & $iscc "/DMyAppVersion=$ver" "/DReleaseDir=$release" ..\packaging\windows\installer.iss
+
+      - name: Upload Windows artifacts to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        working-directory: flutter_app
+        run: |
+          ver="${{ inputs.release-tag }}"; ver="${ver#v}"
+          gh release upload "${{ inputs.release-tag }}" \
+            build/windows/x64/runner/Release/qrstream-windows-x64.zip \
+            packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber
