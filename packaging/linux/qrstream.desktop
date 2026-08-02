@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=QRStream
+GenericName=QR File Transfer
+Comment=Move files between devices as a stream of QR codes — no network, no pairing
+Exec=@EXEC_PATH@
+Icon=qrstream
+Terminal=false
+Categories=Utility;FileTransfer;Network;
+Keywords=QR;transfer;file;offline;
+StartupNotify=true
