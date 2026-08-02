@@ -46,13 +46,42 @@ if [[ -z "${ANDROID_NDK_ROOT:-}" || ! -d "$ANDROID_NDK_ROOT" ]]; then
 fi
 
 # --- toolchain --------------------------------------------------------------
+# NDK prebuilt toolchain for the host; lives under a host-tag dir
+# (linux-x86_64 here; darwin-arm64/darwin-x86_64 on macOS).
+case "$(uname -s)" in
+  Darwin) HOST_TAG="darwin-$(uname -m)" ;;
+  *)      HOST_TAG="linux-x86_64" ;;
+esac
+NDK_TOOLCHAIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/$HOST_TAG"
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 command -v cargo-ndk >/dev/null 2>&1 || cargo install cargo-ndk --locked
 
 # --- build ------------------------------------------------------------------
+# zxing-cpp's build.rs links `-lstdc++`, which on Android resolves to the NDK's
+# *empty* libstdc++.so compatibility stub — the codec's std::/RTTI symbols stay
+# undefined and the .so would fail to load on-device. cargo-ndk's
+# `--link-libcxx-shared` links the NDK's shared libc++ instead (satisfying
+# those symbols) and copies libc++_shared.so next to the codec so the APK
+# bundles it. Harmless for the pure-Rust RaptorQ-only codec (no C++ runtime
+# symbols to satisfy).
 mkdir -p "$JNILIBS_DIR/$ABI"
 (
   cd "$RUST_DIR"
-  cargo ndk -t "$ABI" -o "$JNILIBS_DIR" build --"$PROFILE"
+  cargo ndk -t "$ABI" --link-libcxx-shared -o "$JNILIBS_DIR" build --"$PROFILE"
 )
+
+# --- bundle the C++ runtime (deterministic) --------------------------------
+# cargo-ndk's --link-libcxx-shared already drops a copy into jniLibs; re-copy
+# from the NDK so the bundled .so is pinned to this NDK regardless of cargo-ndk
+# behavior/version. Android does not ship libc++ on-device, so the APK must
+# carry it.
+SYSROOT_LIB="$NDK_TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android"
+CXX_SHARED="$SYSROOT_LIB/libc++_shared.so"
+if [[ -f "$CXX_SHARED" ]]; then
+  cp -f "$CXX_SHARED" "$JNILIBS_DIR/$ABI/"
+  echo "bundled: $JNILIBS_DIR/$ABI/libc++_shared.so"
+else
+  echo "warning: libc++_shared.so not found at $CXX_SHARED — codec may fail to load" >&2
+fi
+
 echo "built: $JNILIBS_DIR/$ABI/libqr_transfer_rust.so"
