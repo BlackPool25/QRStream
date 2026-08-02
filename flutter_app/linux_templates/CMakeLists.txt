@@ -100,6 +100,15 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/runner/icon.png"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# QRStream's Rust codec (RaptorQ + zxing-cpp FFI), built by
+# `cargo build --release` in flutter_app/rust before `flutter build linux
+# --release`. The app loads it from the bundle's lib/ via resolveDylibPath.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../rust/target/release/libqr_transfer_rust.so")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../rust/target/release/libqr_transfer_rust.so"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

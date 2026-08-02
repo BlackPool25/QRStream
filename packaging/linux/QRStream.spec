@@ -1,9 +1,10 @@
 # QRStream RPM spec (Fedora / RHEL / openSUSE).
 #
-# Build:
+# Build (from the repo root — build-rpm.sh wraps this):
 #   cd flutter_app && flutter build linux --release
-#   rpmbuild -bb --define "_topdir $(pwd)/../packaging/linux/rpmbuild" \
-#            ../packaging/linux/QRStream.spec
+#   rpmbuild -bb --define "_topdir $(pwd)/packaging/linux/rpmbuild" \
+#            --define "bundle_dir $(pwd)/flutter_app/build/linux/x64/release/bundle" \
+#            packaging/linux/QRStream.spec
 #
 # Requires: rpm-build, and the GTK3/GLib runtime the Flutter Linux embedder
 # links against (glib2, gtk3, libX11, libXext, etc. — pulled in by
@@ -16,6 +17,11 @@ Summary:        Move files between devices as a stream of QR codes
 License:        Proprietary
 URL:            https://example.invalid/qrstream
 BuildArch:      x86_64
+
+# Flutter plugin .so files and the Rust codec carry a dev-build DT_RUNPATH
+# pointing at the machine's build tree; strip it so the shipped libs are
+# relocatable (the app loads them from its own lib/ dir, never via rpath).
+BuildRequires:  patchelf
 
 Requires:       gtk3
 Requires:       libX11
@@ -43,10 +49,15 @@ install -d %{buildroot}/%{_datadir}/applications
 install -d %{buildroot}/%{_datadir}/icons/hicolor/256x256/apps
 install -d %{buildroot}/%{_bindir}
 
-# Flutter release bundle: executable + data/ + lib/ + icon.png.
-cp -a ../../../flutter_app/build/linux/x64/release/bundle/. \
+# Flutter release bundle: executable + data/ + lib/ + icon.png (built by
+# `flutter build linux --release`; passed in via --define bundle_dir).
+cp -a %{bundle_dir}/. \
   %{buildroot}/%{_libdir}/qrstream/
 ln -s %{_libdir}/qrstream/qr_data_transfer %{buildroot}/%{_bindir}/qrstream
+
+# Strip dev-build RUNPATHs from the bundled shared libraries.
+find %{buildroot}/%{_libdir}/qrstream/lib -name '*.so' -print0 \
+  | xargs -0 -r -n1 patchelf --remove-rpath
 
 sed "s|@EXEC_PATH@|%{_libdir}/qrstream/qr_data_transfer|" \
   %{_sourcedir}/qrstream.desktop \

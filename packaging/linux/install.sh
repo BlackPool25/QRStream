@@ -4,13 +4,16 @@
 # Installs the release bundle into ~/.local/share/qrstream and registers a
 # desktop entry (icon + launcher) for the current user. No root needed.
 #
-# Usage:   bash packaging/linux/install.sh
-#          (run after `flutter build linux --release` from flutter_app/)
+# Usage (from anywhere):
+#   cd flutter_app && flutter build linux --release
+#   bash packaging/linux/install.sh          # from the repo root
 
 set -euo pipefail
 
 APP_NAME="qrstream"
-BUNDLE="build/linux/x64/release/bundle"
+# Repo root = this script's location, two levels up (packaging/linux/).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BUNDLE="$REPO_ROOT/flutter_app/build/linux/x64/release/bundle"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/$APP_NAME"
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
@@ -18,6 +21,11 @@ ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
 
 if [ ! -x "$BUNDLE/qr_data_transfer" ]; then
   echo "error: run 'cd flutter_app && flutter build linux --release' first" >&2
+  exit 1
+fi
+if [ ! -f "$BUNDLE/lib/libqr_transfer_rust.so" ]; then
+  echo "error: the bundle is missing lib/libqr_transfer_rust.so — run" >&2
+  echo "  'cd flutter_app/rust && cargo build --release' before the flutter build" >&2
   exit 1
 fi
 
@@ -29,7 +37,7 @@ mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
 ln -sf "$DEST/qr_data_transfer" "$BIN_DIR/$APP_NAME"
 cp "$BUNDLE/icon.png" "$ICON_DIR/$APP_NAME.png"
 
-sed "s|@EXEC_PATH@|$DEST/qr_data_transfer|" packaging/linux/qrstream.desktop \
+sed "s|@EXEC_PATH@|$DEST/qr_data_transfer|" "$REPO_ROOT/packaging/linux/qrstream.desktop" \
   > "$APP_DIR/qrstream.desktop"
 chmod +x "$APP_DIR/qrstream.desktop"
 
