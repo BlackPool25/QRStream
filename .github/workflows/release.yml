@@ -174,17 +174,12 @@ jobs:
       # The Flutter docs require the MSVC runtime shipped app-local (the
       # msvcp140/vcruntime140 DLLs) or the exe fails to start on machines
       # without the VC++ redistributable — the released zip was missing them.
-      # Copy them from the VS 2022 redist on the runner next to the exe.
+      # The DLLs are committed at packaging/windows/vc_redist/ (sourced from
+      # the VS 2022+ redistributable; deterministic, no runner-layout lookup).
       - name: Copy MSVC runtime DLLs
+        shell: bash
         working-directory: flutter_app/build/windows/x64/runner/Release
-        shell: pwsh
-        run: |
-          $crt = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory |
-            Sort-Object { [version]($_.FullName -split 'MSVC\\')[-1].Split('\')[0] } -Descending | Select-Object -First 1
-          if (-not $crt) { throw "MSVC VC143 CRT not found on runner" }
-          Copy-Item "$($crt.FullName)\msvcp140.dll" .
-          Copy-Item "$($crt.FullName)\vcruntime140.dll" .
-          Copy-Item "$($crt.FullName)\vcruntime140_1.dll" .
+        run: cp "$GITHUB_WORKSPACE"/packaging/windows/vc_redist/*.dll .
 
       - name: Package Windows zip
         shell: bash
