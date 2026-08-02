@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 // Flutter's widgets export a `LayoutId` (CustomMultiChildLayout) that collides
 // with the protocol's tile-layout id, so it is hidden here.
 import 'package:flutter/material.dart' hide LayoutId;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:qr_data_transfer/sender/broadcast_controller.dart';
@@ -28,6 +29,11 @@ import 'package:qr_transfer_core/sender/pacing.dart';
 import 'package:qr_transfer_core/sender/pipeline.dart';
 
 /// Deterministic incompressible bytes (seeded, so runs are repeatable).
+
+/// The pigeon BasicMessageChannel the wakelock_plus plugin uses (pinned by
+/// pubspec: wakelock_plus 1.7.0 → platform_interface 1.6.0).
+const String _wakelockToggleChannel =
+    'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';
 Uint8List randomBytes(int length, [int seed = 42]) {
   final rng = Random(seed);
   final bytes = Uint8List(length);
@@ -186,6 +192,24 @@ void main() {
       mime: 'application/octet-stream',
       factory: RustRaptorqFactory(),
     );
+  });
+
+  setUp(() {
+    // The controller calls WakelockPlus.enable()/disable() (a pigeon platform
+    // channel) on start/stop. Without a mock the reply is a pending future,
+    // and on a slow CI runner the ticker teardown can trip "animation still
+    // running" at the end of the test. Mock the channel so the wake-lock
+    // futures resolve immediately and deterministically.
+    TestWidgetsFlutterBinding.ensureInitialized();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler(
+          _wakelockToggleChannel,
+          (_) async => StandardMessageCodec().encodeMessage(const <Object?>[null]),
+        );
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(_wakelockToggleChannel, null);
+    });
   });
 
   /// Mounts the ticker harness and creates a controller over [prepared]
