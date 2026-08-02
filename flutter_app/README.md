@@ -63,17 +63,19 @@ are committed as templates here):
   Downloads/QRTransfer + tap-to-open). The `AndroidManifest.xml` is also templated
   (camera + save permissions and the app label), so copy/apply that template too.
 - Copy `android_templates/build.gradle.kts.template` to `android/app/build.gradle.kts` —
-  the `flutter create` output plus a `proguardFiles(...)` wiring in the release build
-  type, so the ML Kit keep rules below are applied by R8. No dependency exclusions are
-  needed: the plugin's own `com.google.mlkit:barcode-scanning:17.3.0` *is* the bundled
-  model variant (it carries the in-APK model; `play-services-mlkit-barcode-scanning`
-  carries only the client API + the unused Play Services path), so scanning already runs
-  fully in-process with no Play Services at runtime.
+  the stock `flutter create` output, templated so a fresh clone has a known-good file.
+  **Do not add a `proguardFiles(...)` line to the release build type**: it replaces the
+  rules the Flutter Gradle plugin injects, R8 then strips every plugin class, and the app
+  crashes at launch (`NoClassDefFoundError` in the reflected `GeneratedPluginRegistrant`).
 - Copy `android_templates/proguard-rules.pro` to `android/app/proguard-rules.pro` — R8 keep
-  rules for Google ML Kit barcode scanning. ML Kit's client reaches the bundled model
-  through firebase-components registration and reflection; AGP 9's R8 full mode strips
-  those classes, and the release build then crashes at scan time with "getClass() on a
-  null object reference" (debug builds are unaffected).
+  rules for Google ML Kit barcode scanning. The Flutter Gradle plugin auto-discovers a
+  `proguard-rules.pro` in `android/app` and adds it to the release R8 rules (no wiring
+  needed). ML Kit's client reaches the bundled in-APK model through firebase-components
+  registration and reflection; AGP 9's R8 full mode strips those classes, and the release
+  build then crashes at scan time with "getClass() on a null object reference" (debug
+  builds are unaffected). No dependency exclusions are needed: the plugin's
+  `com.google.mlkit:barcode-scanning:17.3.0` *is* the bundled model variant, so scanning
+  already runs fully in-process with no Play Services at runtime.
 - Regenerate the launcher icon set (the real QRSTREAM QR code on the espresso
   `#161312` background, adaptive + legacy mipmaps) into the generated `android/` tree:
   `~/dart-sdk/bin/dart android_templates/icon/generate.dart` (run from `flutter_app/`;
