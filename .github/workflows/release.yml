@@ -96,7 +96,7 @@ jobs:
           sha256sum ../packaging/linux/rpmbuild/RPMS/x86_64/*.rpm >> SHA256SUMS
 
       - name: Create GitHub Release (draft)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: QRStream ${{ github.ref_name }}
           generate_release_notes: true
