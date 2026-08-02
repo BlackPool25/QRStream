@@ -7,7 +7,6 @@ import {
 import { estimateEtaSeconds, estimateThroughput } from '../sender/pacing'
 import { transferLabel } from '../sender/settings'
 import { formatBytes, formatEta } from './format'
-import { IconLandscape, IconPortrait } from './icons'
 
 export interface SenderSettingsProps {
   readonly settings: TransferSettings
@@ -40,14 +39,43 @@ const TILE_OPTIONS: ReadonlyArray<{ readonly id: BytesPerTileId; readonly label:
 const LAYOUT_OPTIONS: ReadonlyArray<{
   readonly id: LayoutId
   readonly label: string
-  readonly glyph: 'portrait' | 'landscape' | null
+  readonly rows: number
+  readonly cols: number
 }> = [
-  { id: 'single', label: '1×1', glyph: null },
-  { id: 'column3', label: '3×1', glyph: 'portrait' },
-  { id: 'row3', label: '1×3', glyph: 'landscape' },
-  { id: 'grid4', label: '2×2', glyph: null },
-  { id: 'grid9', label: '3×3', glyph: null },
+  { id: 'single', label: '1×1', rows: 1, cols: 1 },
+  { id: 'column3', label: '3×1', rows: 3, cols: 1 },
+  { id: 'row3', label: '1×3', rows: 1, cols: 3 },
+  { id: 'grid4', label: '2×2', rows: 2, cols: 2 },
+  { id: 'grid9', label: '3×3', rows: 3, cols: 3 },
 ]
+
+function LayoutGlyph({ rows, cols }: { rows: number; cols: number }) {
+  const cells = []
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push(
+        <span
+          key={`${r}-${c}`}
+          className="layout-glyph-cell"
+          style={{ marginRight: c === cols - 1 ? 0 : 2, marginBottom: r === rows - 1 ? 0 : 2 }}
+        />,
+      )
+    }
+  }
+  return (
+    <span
+      className="layout-glyph"
+      style={{
+        display: 'inline-grid',
+        gridTemplateColumns: `repeat(${cols}, 5px)`,
+        gridTemplateRows: `repeat(${rows}, 5px)`,
+        gap: 2,
+      }}
+    >
+      {cells}
+    </span>
+  )
+}
 
 function formatKilobytesPerSecond(bps: number): string {
   return `~${Math.round(bps / 1024)} KB/s`
@@ -144,11 +172,9 @@ export function SenderSettings(props: SenderSettingsProps) {
                 className="segmented-option"
                 onClick={() => props.onSettingsChange({ ...settings, layout: option.id })}
               >
-                {option.glyph === 'portrait' ? (
-                  <IconPortrait size={16} />
-                ) : option.glyph === 'landscape' ? (
-                  <IconLandscape size={16} />
-                ) : null}
+                {option.id === 'single' || option.id === 'grid4' || option.id === 'grid9' ? null : (
+                  <LayoutGlyph rows={option.rows} cols={option.cols} />
+                )}
                 <span>{option.label}</span>
                 {recommended && <span className="recommended">recommended</span>}
               </button>

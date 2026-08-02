@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
@@ -296,7 +297,8 @@ Future<PickedFile?> _realFilePicker() async {
       const XTypeGroup(label: 'Any', extensions: null),
     ]);
     if (file == null) return null;
-    final bytes = await file.readAsBytes();
+    final bytes = await _readPickerBytes(file);
+    if (bytes.isEmpty) return null;
     // Real MIME from the extension — the wire metadata and the MediaStore
     // MIME_TYPE row inherit this, so the saved file opens in file managers
     // (a hardcoded application/octet-stream makes Google Files refuse it).
@@ -304,6 +306,34 @@ Future<PickedFile?> _realFilePicker() async {
     return (name: file.name, mime: mime, bytes: bytes);
   } catch (_) {
     return null;
+  }
+}
+
+/// Reads the picked file's bytes, tolerating provider quirks. On Android the
+/// plugin usually hands back an in-memory XFile (content-resolver read), but
+/// some providers (e.g. Google Files) return a path-backed XFile; readAsBytes
+/// then hits dart:io on a content:// URI and throws. Fall back to openRead,
+/// and finally to a raw file read of the path.
+Future<Uint8List> _readPickerBytes(XFile file) async {
+  try {
+    final bytes = await file.readAsBytes();
+    if (bytes.isNotEmpty) return bytes;
+  } catch (_) {
+    // fall through to the stream-based reads
+  }
+  try {
+    final collected = <int>[];
+    await for (final chunk in file.openRead()) {
+      collected.addAll(chunk);
+    }
+    if (collected.isNotEmpty) return Uint8List.fromList(collected);
+  } catch (_) {
+    // fall through to the direct path read
+  }
+  try {
+    return await File(file.path).readAsBytes();
+  } catch (_) {
+    return Uint8List(0);
   }
 }
 

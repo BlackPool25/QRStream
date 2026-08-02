@@ -204,7 +204,13 @@ double? estimateEta(
       symbolSize <= 0) {
     return null;
   }
-  return math.max(0, k - unique) * symbolSize / bytesPerSecond;
+  if (unique >= k) {
+    // The frame buffer counts repair symbols (esi >= k) too, so unique
+    // meeting/exceeding k does not mean the transfer is done — the decoder is
+    // still working. ETA 0 would read as complete, so it must be unknowable.
+    return null;
+  }
+  return (k - unique) * symbolSize / bytesPerSecond;
 }
 
 /// 0..1: unique/k when k is known, else 0.
@@ -220,6 +226,18 @@ double _emaBlend(double prev, double instant, int windowMs) {
   return prev * (1 - alpha) + instant * alpha;
 }
 
+/// Windowed receive rate: how many NEW symbols arrived in this window, times
+/// the symbol size, per second — EMA-blended with the previous rate. Unlike a
+/// lifetime average (unique × size / total elapsed), this reflects the current
+/// decode throughput, so the ETA it feeds stays honest.
+double _windowedBytesPerSecond(ReceiverStats prev, StatsSample sample) {
+  final size = sample.symbolSize;
+  if (size == null || size <= 0 || sample.windowMs <= 0) return 0.0;
+  final delta = math.max(0, sample.unique - prev.unique);
+  final instant = delta * size / (sample.windowMs / 1000);
+  return _emaBlend(prev.bytesPerSecond, instant, sample.windowMs);
+}
+
 /// Stateful projection: decodeRate is an EMA of every window seen so far.
 ReceiverStats updateStats(ReceiverStats prev, StatsSample sample) {
   final instant = sample.windowMs <= 0
@@ -227,9 +245,7 @@ ReceiverStats updateStats(ReceiverStats prev, StatsSample sample) {
       : (sample.decodedInWindow / sample.windowMs) * 1000;
   final decodeRate = _emaBlend(prev.decodeRate, instant, sample.windowMs);
   final size = sample.symbolSize;
-  final bytesPerSecond = size != null && size > 0 && sample.elapsedMs > 0
-      ? sample.unique * size / (sample.elapsedMs / 1000)
-      : 0.0;
+  final bytesPerSecond = _windowedBytesPerSecond(prev, sample);
   return ReceiverStats((
     prev.status,
     sample.unique,

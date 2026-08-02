@@ -170,19 +170,25 @@ void main() {
 
   group('updateStats bytesPerSecond and eta', () {
     test(
-      'bps = unique * symbolSize / elapsedSeconds, eta = remaining / bps',
+      'bps = new unique symbols in window * symbolSize / windowSeconds',
       () {
         final stats = updateStats(
           ReceiverStats.empty(),
-          sample(unique: 40, k: 100, symbolSize: 1024, elapsedMs: 2000),
+          sample(
+            unique: 40,
+            k: 100,
+            symbolSize: 1024,
+            windowMs: 2000,
+          ),
         );
+        // 40 new symbols in a 2s window -> 40 * 1024 / 2 = 20480 B/s.
         expect(stats.bytesPerSecond, closeTo(20480.0, 1e-9));
         expect(stats.etaSeconds, closeTo(3.0, 1e-9)); // 60 * 1024 / 20480
         expect(stats.progress, 0.4);
       },
     );
 
-    test('no elapsed time -> bps 0 -> eta unknown', () {
+    test('no window -> bps 0 -> eta unknown', () {
       final stats = updateStats(
         ReceiverStats.empty(),
         sample(unique: 40, k: 100, symbolSize: 1024, elapsedMs: 0),
@@ -194,7 +200,12 @@ void main() {
     test('k unknown -> eta unknown even with a positive bps', () {
       final stats = updateStats(
         ReceiverStats.empty(),
-        sample(unique: 40, k: null, symbolSize: 1024, elapsedMs: 2000),
+        sample(
+          unique: 40,
+          k: null,
+          symbolSize: 1024,
+          windowMs: 2000,
+        ),
       );
       expect(stats.bytesPerSecond, closeTo(20480.0, 1e-9));
       expect(stats.etaSeconds, isNull);
@@ -225,6 +236,8 @@ void main() {
           windowMs: 100,
         ),
       );
+      // Windowed bps: 40 new symbols × 1024 B in 0.1s = 409600 instant,
+      // EMA-blended from 0 with alpha 0.1 → 40960.
       expect(
         stats,
         ReceiverStats((
@@ -234,8 +247,8 @@ void main() {
           0,
           0,
           10.0,
-          20480.0,
-          3.0,
+          40960.0,
+          1.5,
           0.4,
           true,
           null,

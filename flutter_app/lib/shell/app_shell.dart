@@ -136,28 +136,31 @@ class _BrandHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.asset(
-              'assets/logo.png',
-              width: 36,
-              height: 36,
-              fit: BoxFit.cover,
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                'assets/logo.png',
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'QRStream',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontFamily: 'Fraunces',
-              fontWeight: FontWeight.w600,
+            const SizedBox(width: 10),
+            Text(
+              'QRStream',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontFamily: 'Fraunces',
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -163,6 +163,24 @@ describe('updateStats (EMA decode rate)', () => {
     expect(stats.fileName).toBe('a.bin')
     expect(stats.verified).toBe(true)
   })
+
+  it('computes bytesPerSecond from the delta of unique symbols per window, not the lifetime average', () => {
+    // 20 new symbols (unique 0 -> 20) in a 1s window at 1024 B/symbol.
+    const first = updateStats(
+      BASE_STATS,
+      sample({ unique: 20, k: 100, symbolSize: 1024, windowMs: 1000 }),
+    )
+    expect(first.bytesPerSecond).toBe(20480)
+
+    // The next window adds only 5 new symbols in 1s: the rate must fall to
+    // 5120, NOT stay at the lifetime average (25 * 1024 / 2 = 12800). A 1s
+    // window is a full EMA replacement (alpha = windowMs/1000 = 1).
+    const second = updateStats(
+      first,
+      sample({ unique: 25, k: 100, symbolSize: 1024, windowMs: 1000 }),
+    )
+    expect(second.bytesPerSecond).toBe(5120)
+  })
 })
 
 describe('downsampleTarget', () => {
@@ -200,8 +218,17 @@ describe('estimateEta', () => {
     expect(estimateEta(40, 100, 5000, undefined)).toBeUndefined()
   })
 
-  it('returns 0 once every symbol has arrived', () => {
-    expect(estimateEta(100, 100, 5000, 1024)).toBe(0)
+  it('is undefined once unique meets or exceeds k (waiting on the decoder, not more symbols)', () => {
+    // The frame buffer counts repair symbols (esi >= k) too, so unique can
+    // exceed k while the transfer is still decoding. ETA of 0 would read as
+    // "done" — it must be unknowable instead.
+    expect(estimateEta(100, 100, 5000, 1024)).toBeUndefined()
+    expect(estimateEta(120, 100, 5000, 1024)).toBeUndefined()
+  })
+
+  it('clamps the remaining-symbol count to k so repair symbols cannot inflate ETA', () => {
+    // unique includes repair symbols; the remaining count must never go below 0.
+    expect(estimateEta(99, 100, 5000, 1024)).toBeCloseTo(0.2048, 3)
   })
 })
 

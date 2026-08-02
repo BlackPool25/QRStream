@@ -175,7 +175,7 @@ class _SettingsViewState extends State<SettingsView> {
           ChoiceChip(
             key: Key('layout_${layout.name}'),
             label: Text(SettingsPanel._layoutLabel(layout)),
-            avatar: SettingsPanel._layoutGlyph(layout),
+            avatar: SettingsPanel._layoutGlyph(context, layout),
             selected: _settings.layout == layout,
             showCheckmark: false,
             onSelected: (_) => _update(
@@ -439,7 +439,7 @@ class SettingsPanel extends StatelessWidget {
           ChoiceChip(
             key: Key('layout_${layout.name}'),
             label: Text(_layoutLabel(layout)),
-            avatar: _layoutGlyph(layout),
+            avatar: _layoutGlyph(context, layout),
             selected: settings.layout == layout,
             showCheckmark: false,
             onSelected: (_) => onChanged(
@@ -558,20 +558,56 @@ class SettingsPanel extends StatelessWidget {
     }
   }
 
-  static Widget? _layoutGlyph(qrc.LayoutId layout) {
-    // Glyphs read "rows × columns" like the labels: a 2×1/3×1 column is a
-    // vertical stack (agenda look), a 1×2/1×3 row is a horizontal strip
-    // (side-by-side column look).
-    switch (layout) {
-      case qrc.LayoutId.column2:
-      case qrc.LayoutId.column3:
-        return const Icon(Icons.view_agenda, size: 14);
-      case qrc.LayoutId.row2:
-      case qrc.LayoutId.row3:
-        return const Icon(Icons.view_column, size: 14);
-      default:
-        return null;
-    }
+  static Widget? _layoutGlyph(BuildContext context, qrc.LayoutId layout) {
+    // Draw the ACTUAL tile arrangement (rows × cols) so the glyph is
+    // unambiguous: 2×1 is two stacked squares, 1×2 is two side-by-side.
+    // Material's view_agenda/view_column icons are too similar at 14px.
+    return switch (layout) {
+      qrc.LayoutId.single => _layoutMiniGrid(context, 1, 1),
+      qrc.LayoutId.column2 => _layoutMiniGrid(context, 2, 1),
+      qrc.LayoutId.column3 => _layoutMiniGrid(context, 3, 1),
+      qrc.LayoutId.row2 => _layoutMiniGrid(context, 1, 2),
+      qrc.LayoutId.row3 => _layoutMiniGrid(context, 1, 3),
+      qrc.LayoutId.grid4 => _layoutMiniGrid(context, 2, 2),
+      qrc.LayoutId.grid9 => _layoutMiniGrid(context, 3, 3),
+    };
+  }
+
+  /// A tiny grid of rounded squares reflecting the layout's rows × cols.
+  static Widget _layoutMiniGrid(BuildContext context, int rows, int cols) {
+    const gap = 2.0;
+    const tile = 4.0;
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    Widget cell(Widget child, int c) => Padding(
+      padding: EdgeInsets.only(right: c == cols - 1 ? 0 : gap),
+      child: child,
+    );
+    Widget row(int r) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var c = 0; c < cols; c++)
+          cell(
+            Container(
+              width: tile,
+              height: tile,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+            c,
+          ),
+      ],
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var r = 0; r < rows; r++) ...[
+          if (r > 0) const SizedBox(height: gap),
+          row(r),
+        ],
+      ],
+    );
   }
 
   static String _formatBytes(int n) {

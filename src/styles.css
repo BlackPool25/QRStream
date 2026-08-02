@@ -688,6 +688,14 @@ button {
   flex-shrink: 0;
 }
 
+.layout-glyph-cell {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
 .segmented-layout {
   flex-wrap: wrap;
 }

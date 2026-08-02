@@ -86,7 +86,13 @@ export function estimateEta(
   ) {
     return undefined
   }
-  return (Math.max(0, k - unique) * symbolSize) / bytesPerSecond
+  if (unique >= k) {
+    // The frame buffer counts repair symbols (esi >= k) too, so unique meeting
+    // or exceeding k does not mean the transfer is done — the decoder is still
+    // working. ETA of 0 would read as "complete", so it must be unknowable.
+    return undefined
+  }
+  return ((k - unique) * symbolSize) / bytesPerSecond
 }
 
 function clamp01(value: number): number {
@@ -129,11 +135,12 @@ export const EMPTY_STATS: ReceiverStats = {
   verified: undefined,
 }
 
-function statsOf(prev: ReceiverStats, sample: StatsSample, decodeRate: number): ReceiverStats {
-  const bytesPerSecond =
-    sample.symbolSize !== undefined && sample.symbolSize > 0 && sample.elapsedMs > 0
-      ? (sample.unique * sample.symbolSize) / (sample.elapsedMs / 1000)
-      : 0
+function statsOf(
+  prev: ReceiverStats,
+  sample: StatsSample,
+  decodeRate: number,
+  bytesPerSecond: number,
+): ReceiverStats {
   return {
     status: prev.status,
     unique: sample.unique,
@@ -152,13 +159,41 @@ function statsOf(prev: ReceiverStats, sample: StatsSample, decodeRate: number): 
 
 /** Stateless projection: decodeRate is this window's instantaneous rate. */
 export function computeStats(sample: StatsSample): ReceiverStats {
-  return statsOf(EMPTY_STATS, sample, instantaneousRate(sample.decodedInWindow, sample.windowMs))
+  return statsOf(
+    EMPTY_STATS,
+    sample,
+    instantaneousRate(sample.decodedInWindow, sample.windowMs),
+    sample.symbolSize !== undefined && sample.symbolSize > 0 && sample.elapsedMs > 0
+      ? (sample.unique * sample.symbolSize) / (sample.elapsedMs / 1000)
+      : 0,
+  )
+}
+
+/**
+ * Windowed receive rate: how many NEW symbols arrived in this window, times
+ * the symbol size, per second — EMA-blended with the previous rate. Unlike a
+ * lifetime average (unique × size / total elapsed), this reflects the current
+ * decode throughput and drops when the sender's cadence slows or the receiver
+ * starts missing frames, so the ETA it feeds stays honest.
+ */
+function windowedBytesPerSecond(prev: ReceiverStats, sample: StatsSample): number {
+  if (sample.symbolSize === undefined || sample.symbolSize <= 0 || sample.windowMs <= 0) {
+    return 0
+  }
+  const delta = Math.max(0, sample.unique - prev.unique)
+  const instant = (delta * sample.symbolSize) / (sample.windowMs / 1000)
+  return emaBlend(prev.bytesPerSecond, instant, sample.windowMs)
 }
 
 /** Stateful projection: decodeRate is an EMA of every window seen so far. */
 export function updateStats(prev: ReceiverStats, sample: StatsSample): ReceiverStats {
   const instant = instantaneousRate(sample.decodedInWindow, sample.windowMs)
-  return statsOf(prev, sample, emaBlend(prev.decodeRate, instant, sample.windowMs))
+  return statsOf(
+    prev,
+    sample,
+    emaBlend(prev.decodeRate, instant, sample.windowMs),
+    windowedBytesPerSecond(prev, sample),
+  )
 }
 
 export type FeedAction = 'reset' | 'start' | 'feed-more' | 'none'

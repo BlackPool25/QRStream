@@ -53,12 +53,9 @@ QRStream is two apps that speak the same wire protocol:
 ### The Flutter app
 
 <p align="center">
-  <img alt="QRStream Flutter app shell" src="flutter_app/docs/screenshots/flutter-shell.png" width="49%">
-  <img alt="QRStream broadcast — 2×2 QR grid on the dark stage" src="flutter_app/docs/screenshots/flutter-broadcast.png" width="49%">
-</p>
-
-<p align="center">
-  <img alt="QRStream send-flow settings panel" src="flutter_app/docs/screenshots/flutter-settings.png" width="60%">
+  <img alt="QRStream home — send / receive" src="docs/screenshots/user-home.png" width="32%">
+  <img alt="QRStream send flow — pick a file" src="docs/screenshots/user-send.png" width="32%">
+  <img alt="QRStream broadcasting — the QR grid on screen" src="docs/screenshots/user-qr.png" width="32%">
 </p>
 
 ### Receiving
@@ -139,7 +136,7 @@ the flutter_rust_bridge version-lock contract — see
 3. Watch the unique-symbol count climb; when it completes you get a
    **✓ VERIFIED (SHA-256)** badge. Tap **Save file**.
 
-![Broadcasting a 2×2 QR grid](docs/screenshots/hero-broadcast.png)
+![Broadcasting the QR grid on the phone screen](docs/screenshots/user-qr.png)
 
 ## Features
 
