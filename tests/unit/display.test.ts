@@ -117,7 +117,7 @@ describe('computeLayoutGeometry', () => {
     expect(g.ppm).toBe(6) // integerScalePx(27*4+17+8=133, 800)
   })
 
-  it('splits a portrait column3 canvas into 1x3 cells', () => {
+  it('splits a portrait column3 canvas into 3x1 cells', () => {
     const g = computeLayoutGeometry(900, 2400, 'column3', 27)
 
     expect(g.cellW).toBe(900)
@@ -125,7 +125,7 @@ describe('computeLayoutGeometry', () => {
     expect(g.ppm).toBe(6) // min cell side 800
   })
 
-  it('splits a landscape row3 canvas into 3x1 cells', () => {
+  it('splits a landscape row3 canvas into 1x3 cells', () => {
     const g = computeLayoutGeometry(2400, 900, 'row3', 27)
 
     expect(g.cellW).toBe(800)

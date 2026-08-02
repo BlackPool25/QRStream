@@ -43,8 +43,8 @@ const LAYOUT_OPTIONS: ReadonlyArray<{
   readonly glyph: 'portrait' | 'landscape' | null
 }> = [
   { id: 'single', label: '1×1', glyph: null },
-  { id: 'column3', label: '1×3', glyph: 'portrait' },
-  { id: 'row3', label: '3×1', glyph: 'landscape' },
+  { id: 'column3', label: '3×1', glyph: 'portrait' },
+  { id: 'row3', label: '1×3', glyph: 'landscape' },
   { id: 'grid4', label: '2×2', glyph: null },
   { id: 'grid9', label: '3×3', glyph: null },
 ]

@@ -368,7 +368,7 @@ describe('renderTiles N×M composition', () => {
   const v27 = encodeQrBytes(pseudoRandomBytes(GRID_CAPACITY), { version: GRID_VERSION })
   const v27TileSide = (v27.size + MIN_QUIET_ZONE * 2) * ppm // 532 at ppm 4
 
-  it('recovers all 3 payloads from a 3×1 row on a landscape canvas', async () => {
+  it('recovers all 3 payloads from a 1×3 row on a landscape canvas', async () => {
     const payloads = [0x31, 0x32, 0x33].map((seed) => pseudoRandomBytes(GRID_CAPACITY, seed))
     const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
     const canvasWidth = 1800 // 3 cells of 600
@@ -390,7 +390,7 @@ describe('renderTiles N×M composition', () => {
     }
   })
 
-  it('recovers all 3 payloads from a 1×3 column on a portrait canvas', async () => {
+  it('recovers all 3 payloads from a 3×1 column on a portrait canvas', async () => {
     const payloads = [0x41, 0x42, 0x43].map((seed) => pseudoRandomBytes(GRID_CAPACITY, seed))
     const matrices = payloads.map((p) => encodeQrBytes(p, { version: GRID_VERSION }))
     const canvasWidth = 800
@@ -520,7 +520,7 @@ describe('renderTiles N×M composition', () => {
     }
   })
 
-  it('keeps the quiet zone around every tile in a 3×1 row on a landscape canvas', () => {
+  it('keeps the quiet zone around every tile in a 1×3 row on a landscape canvas', () => {
     const frame = renderTiles([v27, v27, v27], {
       modules: ppm,
       cols: 3,

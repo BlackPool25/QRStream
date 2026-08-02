@@ -60,7 +60,7 @@ test.describe('end-to-end transfer over the virtual camera', () => {
     await runTransfer(context, fixture, { receiverDelayMs: 2_500 })
   })
 
-  test('receives a non-default-settings broadcast (2.5 KB tiles, 3×1 row) byte-identical', async ({
+  test('receives a non-default-settings broadcast (2.5 KB tiles, 1×3 row) byte-identical', async ({
     context,
   }) => {
     test.setTimeout(120_000)
@@ -70,7 +70,7 @@ test.describe('end-to-end transfer over the virtual camera', () => {
       bytes: buildRandomBytes(256 * 1024, 6),
     }
     // Non-default settings must work end-to-end: the sender re-encodes for the
-    // 2.5 KB symbol and broadcasts a 3×1 row, and the receiver (profile-
+    // 2.5 KB symbol and broadcasts a 1×3 row, and the receiver (profile-
     // agnostic, it reassembles any symbolSize from metadata) still reassembles
     // + SHA-256-verifies the exact same bytes. Same assertions as the defaults.
     await runTransfer(context, fixture, {

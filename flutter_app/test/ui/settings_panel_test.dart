@@ -163,6 +163,43 @@ void main() {
     expect(find.text('2×1'), findsOneWidget);
   });
 
+  testWidgets('column layout chips show a vertical-stack glyph and row chips a horizontal one', (
+    tester,
+  ) async {
+    await captureChange(tester);
+
+    // Labels read "rows × columns": 2×1/3×1 are vertical columns, 1×2/1×3 are
+    // horizontal rows. The glyph must match the orientation — a stacked
+    // (agenda) look for columns, a side-by-side (column) look for rows.
+    final columnChip = find.byKey(const Key('layout_column2'));
+    final column3Chip = find.byKey(const Key('layout_column3'));
+    final rowChip = find.byKey(const Key('layout_row2'));
+    final row3Chip = find.byKey(const Key('layout_row3'));
+    expect(columnChip, findsOneWidget);
+    expect(column3Chip, findsOneWidget);
+    expect(rowChip, findsOneWidget);
+    expect(row3Chip, findsOneWidget);
+
+    // Vertical columns → stacked-bars glyph.
+    expect(
+      find.descendant(of: columnChip, matching: find.byIcon(Icons.view_agenda)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: column3Chip, matching: find.byIcon(Icons.view_agenda)),
+      findsOneWidget,
+    );
+    // Horizontal rows → side-by-side glyph.
+    expect(
+      find.descendant(of: rowChip, matching: find.byIcon(Icons.view_column)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: row3Chip, matching: find.byIcon(Icons.view_column)),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('tapping the row2 chip fires onChanged with LayoutId.row2', (
     tester,
   ) async {

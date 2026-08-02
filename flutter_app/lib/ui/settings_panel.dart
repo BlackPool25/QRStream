@@ -559,13 +559,16 @@ class SettingsPanel extends StatelessWidget {
   }
 
   static Widget? _layoutGlyph(qrc.LayoutId layout) {
+    // Glyphs read "rows × columns" like the labels: a 2×1/3×1 column is a
+    // vertical stack (agenda look), a 1×2/1×3 row is a horizontal strip
+    // (side-by-side column look).
     switch (layout) {
       case qrc.LayoutId.column2:
       case qrc.LayoutId.column3:
-        return const Icon(Icons.view_column, size: 14);
+        return const Icon(Icons.view_agenda, size: 14);
       case qrc.LayoutId.row2:
       case qrc.LayoutId.row3:
-        return const Icon(Icons.view_agenda, size: 14);
+        return const Icon(Icons.view_column, size: 14);
       default:
         return null;
     }

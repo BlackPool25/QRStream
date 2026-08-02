@@ -112,5 +112,5 @@ export function detectOrientation(): 'portrait' | 'landscape' {
 export function transferLabel(settings: TransferSettings): string {
   const tile = BYTES_PER_TILE[settings.bytesPerTile]
   const layout = LAYOUTS[settings.layout]
-  return `V${tile.version} · ${layout.cols}×${layout.rows}`
+  return `V${tile.version} · ${layout.rows}×${layout.cols}`
 }
