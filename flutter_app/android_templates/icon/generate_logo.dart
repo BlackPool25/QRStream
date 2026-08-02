@@ -154,14 +154,25 @@ Future<void> main() async {
   _initPaths();
   _magickBin = _findMagick();
 
-  final logoPath = File(
+  // Prefer the committed icon-sized brand asset (linux_templates/icon.png) —
+  // the same logo as repo-root logo.png but already 256x256 and guaranteed to
+  // exist in CI. Falls back to repo-root logo.png.
+  final templateIcon = File(
+    '${_scriptDir.path}${Platform.pathSeparator}..'
+    '${Platform.pathSeparator}..'
+    '${Platform.pathSeparator}..'
+    '${Platform.pathSeparator}linux_templates'
+    '${Platform.pathSeparator}icon.png',
+  ).absolute.path;
+  final rootLogo = File(
     '${_scriptDir.path}${Platform.pathSeparator}..'
     '${Platform.pathSeparator}..'
     '${Platform.pathSeparator}..'
     '${Platform.pathSeparator}logo.png',
   ).absolute.path;
+  final logoPath = File(templateIcon).existsSync() ? templateIcon : rootLogo;
   if (!File(logoPath).existsSync()) {
-    throw StateError('logo.png not found at $logoPath — drop the logo there.');
+    throw StateError('no logo found — drop the logo at linux_templates/icon.png or repo-root logo.png');
   }
 
   // --- master logo glyph: padded on transparent so nothing touches edges ----

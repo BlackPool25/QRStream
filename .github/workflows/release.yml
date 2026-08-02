@@ -61,11 +61,12 @@ jobs:
 
       # The launcher icon (adaptive + legacy mipmaps) is generated, not
       # committed (res/ lives under the gitignored android/ tree). A fresh
-      # build otherwise ships the default Flutter icon — run the generator so
-      # the release APK shows the QRStream logo.
+      # build otherwise ships the default Flutter icon — run the LOGO-based
+      # generator so the release APK shows the brand logo (generate.dart makes
+      # a generic QR instead).
       - name: Generate launcher icon
         working-directory: flutter_app
-        run: dart android_templates/icon/generate.dart
+        run: dart android_templates/icon/generate_logo.dart
 
       - name: Rust release codec (Linux dylib)
         working-directory: flutter_app/rust
