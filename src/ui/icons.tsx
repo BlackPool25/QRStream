@@ -51,23 +51,6 @@ export function IconMinimize({ size = 24 }: IconProps) {
   )
 }
 
-/** Boost brightness (screen wake lock / max brightness hint). */
-export function IconSun({ size = 24 }: IconProps) {
-  return (
-    <Svg size={size}>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2" />
-      <path d="M12 20v2" />
-      <path d="M4.93 4.93l1.41 1.41" />
-      <path d="M17.66 17.66l1.41 1.41" />
-      <path d="M2 12h2" />
-      <path d="M20 12h2" />
-      <path d="M6.34 17.66l-1.41 1.41" />
-      <path d="M19.07 4.93l-1.41 1.41" />
-    </Svg>
-  )
-}
-
 /** Stop broadcast. */
 export function IconStop({ size = 24 }: IconProps) {
   return (
@@ -107,7 +90,7 @@ export function IconCamera({ size = 24 }: IconProps) {
   )
 }
 
-/** Portrait tile glyph (1×3 column layout). */
+/** Portrait tile glyph (3×1 column layout — three tiles stacked vertically). */
 export function IconPortrait({ size = 24 }: IconProps) {
   return (
     <Svg size={size}>
@@ -116,7 +99,7 @@ export function IconPortrait({ size = 24 }: IconProps) {
   )
 }
 
-/** Landscape tile glyph (3×1 row layout). */
+/** Landscape tile glyph (1×3 row layout — three tiles side by side). */
 export function IconLandscape({ size = 24 }: IconProps) {
   return (
     <Svg size={size}>

@@ -5,7 +5,7 @@ import { estimateThroughput, type SenderStats } from '../sender/pacing'
 import type { PreparedTransfer } from '../sender/pipeline'
 import { transferLabel } from '../sender/settings'
 import { formatBytes, formatEta } from './format'
-import { IconFullscreen, IconMinimize, IconStop, IconSun } from './icons'
+import { IconFullscreen, IconMinimize, IconStop } from './icons'
 
 interface SenderBroadcastProps {
   readonly prepared: PreparedTransfer
@@ -16,7 +16,6 @@ interface SenderBroadcastProps {
 /** The live QR broadcast: display canvas, status chips and transport controls. */
 export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
   const stats = useSignal<SenderStats | undefined>(undefined)
-  const boost = useSignal(false)
   const isFullscreen = useSignal(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const displayRef = useRef<SenderDisplay | undefined>(undefined)
@@ -62,10 +61,6 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
   function stopBroadcast() {
     const display = displayRef.current
     if (display !== undefined) {
-      // Release the display's own wake lock before stopping the loop.
-      if (boost.value) {
-        display.setBoost(false)
-      }
       display.stop()
     }
     onStop()
@@ -85,12 +80,6 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
     } catch {
       // Fullscreen can be rejected (permission policy); keep the normal layout.
     }
-  }
-
-  function toggleBoost() {
-    const next = !boost.value
-    boost.value = next
-    displayRef.current?.setBoost(next)
   }
 
   const s = stats.value
@@ -131,16 +120,6 @@ export function SenderBroadcast({ prepared, onStop }: SenderBroadcastProps) {
           >
             {isFullscreen.value ? <IconMinimize /> : <IconFullscreen />}
             <span>Fullscreen</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={toggleBoost}
-            aria-pressed={boost.value}
-            aria-label="Toggle boost brightness"
-          >
-            <IconSun />
-            <span>Boost</span>
           </button>
           <button
             type="button"

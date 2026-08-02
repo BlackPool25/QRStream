@@ -110,7 +110,14 @@ export class SenderDisplay {
       return
     }
     this.sizeCanvasToDisplay()
+    // Hold the screen-awake wake lock for the whole broadcast — no user
+    // interaction required (release happens in dispose()).
+    void requestWakeLock()
     this.updateGeometry()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.onViewportChange)
+      window.addEventListener('orientationchange', this.onViewportChange)
+    }
     const now = performance.now()
     this.startTime = now
     this.lastRenderTime = now
@@ -125,11 +132,16 @@ export class SenderDisplay {
     }
     cancelAnimationFrame(this.rafId)
     this.rafId = undefined
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.onViewportChange)
+      window.removeEventListener('orientationchange', this.onViewportChange)
+    }
   }
 
   /** Stops the loop and releases the RaptorQ encoder. Call once when done. */
   dispose(): void {
     this.stop()
+    void releaseWakeLock()
     this.prepared.encoder.dispose()
   }
 
@@ -152,18 +164,6 @@ export class SenderDisplay {
   /** The most recently rendered frame (testable seam for the e2e specs). */
   get lastRenderedFrame(): DisplayFrame | undefined {
     return this.lastFrame
-  }
-
-  /**
-   * Screen-awake boost: keeps the screen on via the wake lock. Brightness
-   * itself has no standard API — the overlay tells the user to raise it.
-   */
-  setBoost(active: boolean): void {
-    if (active) {
-      void requestWakeLock()
-    } else {
-      void releaseWakeLock()
-    }
   }
 
   private readonly tick = (now: number): void => {
@@ -267,6 +267,21 @@ export class SenderDisplay {
     const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
     this.canvas.width = Math.round(window.innerWidth * dpr)
     this.canvas.height = Math.round(window.innerHeight * dpr)
+  }
+
+  /** Re-fit the backing store + tile geometry after the viewport changes. */
+  private readonly onViewportChange = (): void => {
+    if (this.rafId === undefined) {
+      return // stopped; nothing to re-fit
+    }
+    const before = this.canvas.width * this.canvas.height
+    this.sizeCanvasToDisplay()
+    this.updateGeometry()
+    if (this.canvas.width * this.canvas.height !== before) {
+      // lastRenderTime=0 makes the next pacing tick render immediately at the
+      // new resolution instead of reusing the stale backing/ppm.
+      this.lastRenderTime = 0
+    }
   }
 
   /** Layout cells split the full canvas; ppm keeps every module at integer px. */

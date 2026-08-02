@@ -1,7 +1,7 @@
 /**
  * Sender overlay helpers: how large one QR module renders on the canvas, the
- * viewing-distance guidance the overlay shows, and the screen-awake boost.
- * Pure and DOM-free (browser globals are guarded), so all of it is
+ * viewing-distance guidance the overlay shows, and the automatic screen-awake
+ * wake lock. Pure and DOM-free (browser globals are guarded), so all of it is
  * Node-testable.
  */
 
