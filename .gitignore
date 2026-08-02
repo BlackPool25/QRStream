@@ -24,3 +24,6 @@ tests/soak/soak-report.txt
 !.env.example
 .DS_Store
 *.log
+
+# Linux RPM build output
+packaging/linux/rpmbuild/

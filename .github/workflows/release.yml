@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.44.0"
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-ndk
+          key: cargo-${{ runner.os }}-${{ hashFiles('flutter_app/rust/Cargo.lock') }}
+
+      - name: Rust release codec (Linux dylib)
+        working-directory: flutter_app/rust
+        run: cargo build --release
+
+      - name: Build APK
+        working-directory: flutter_app
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Build Linux bundle
+        working-directory: flutter_app
+        run: flutter build linux --release
+
+      - name: Package Linux tarball
+        working-directory: flutter_app/build/linux/x64/release
+        run: tar -czf qrstream-linux-x64.tar.gz bundle
+
+      - name: Checksums
+        working-directory: flutter_app
+        run: |
+          sha256sum build/app/outputs/flutter-apk/app-release.apk \
+                   build/linux/x64/release/qrstream-linux-x64.tar.gz > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QRStream ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            flutter_app/build/linux/x64/release/qrstream-linux-x64.tar.gz
+            flutter_app/SHA256SUMS
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
