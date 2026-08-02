@@ -53,6 +53,14 @@ jobs:
         working-directory: flutter_app/rust
         run: cargo test
 
+      # `cargo test` builds the rlib + test binary but NOT the cdylib .so —
+      # the FFI interop tests (and the core suite below) load
+      # target/debug/libqr_transfer_rust.so via a relative path, so it must be
+      # built explicitly before the standalone-Dart core tests run.
+      - name: Build Rust codec (debug .so)
+        working-directory: flutter_app/rust
+        run: cargo build --lib
+
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
