@@ -1,0 +1,60 @@
+name: ✨ Feature Request
+description: Suggest an idea for QRStream — describe the problem, not just the solution.
+title: '[feat]: '
+labels: ['enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature!
+
+        Please [search existing issues and discussions](https://github.com/BlackPool25/QRStream/discussions) first. Not every idea ships, but every well-argued one is read.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't you do today? A concrete use-case beats an abstract wish.
+      placeholder: 'I want to ... because ...'
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should happen? Sketch the UX, settings, or API surface if you have one.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Affected platform(s)
+      multiple: true
+      options:
+        - Flutter app — Android
+        - Flutter app — Linux desktop
+        - Web PWA
+        - Rust core / CLI
+        - All / cross-platform
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds have you tried? What did other tools do that you liked?
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, sketches, references to QRStream internals this touches (codec, broadcast engine, wire format).
+    validations:
+      required: false
+  - type: checkboxes
+    id: coc
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true

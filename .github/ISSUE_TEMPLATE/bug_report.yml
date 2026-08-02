@@ -1,0 +1,100 @@
+name: 🐛 Bug Report
+description: Report a bug — tell us what went wrong and on which platform.
+title: '[bug]: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+        Before submitting, please [search existing issues](https://github.com/BlackPool25/QRStream/issues). If you find a matching one, upvote it instead of opening a new issue.
+
+        Not sure this is a bug? Ask in [Discussions](https://github.com/BlackPool25/QRStream/discussions) first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I have searched existing issues and this is not a duplicate
+          required: true
+        - label: I have read the README and this is not a usage question
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: What happened, and what did you expect instead?
+      placeholder: |
+        What happened:
+        ...
+        What I expected:
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, including file size and broadcast settings if relevant.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform (select all that apply)
+      description: Which QRStream client are you using?
+      multiple: true
+      options:
+        - Flutter app — Android
+        - Flutter app — Linux desktop
+        - Web PWA — Chrome (desktop)
+        - Web PWA — Chrome / Android
+        - Web PWA — Safari / iOS
+        - Web PWA — Firefox
+        - Rust core / CLI
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device & OS
+      description: Exact device model, OS version, and browser version if PWA (e.g. "Pixel 8 · Android 14 · Chrome 126").
+      placeholder: 'e.g. Pixel 8 · Android 14 · Chrome 126'
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version / commit
+      description: Version from the UI, or the git commit you built from.
+      placeholder: 'e.g. v1.0.0, or 4b416af (main)'
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: PWA → DevTools console; Flutter → `flutter run` output; Rust → stderr with `RUST_LOG=debug`.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots / video
+      description: Drag in sender/receiver screenshots. A screen-recording of a failed transfer is the single most useful thing you can attach.
+    validations:
+      required: false
+  - type: checkboxes
+    id: coc
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
