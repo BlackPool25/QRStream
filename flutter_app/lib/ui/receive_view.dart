@@ -44,6 +44,7 @@ class ReceiveView extends StatefulWidget {
     this.frameDecoder,
     this.dylibPath,
     this.onExit,
+    this.onImmersiveChanged,
   });
 
   /// Overrides [Platform.isLinux] so tests can pin either mode.
@@ -56,6 +57,10 @@ class ReceiveView extends StatefulWidget {
 
   final String? dylibPath;
   final VoidCallback? onExit;
+
+  /// Notified when scanning starts/stops (immersive) — the shell hides its
+  /// brand header while the camera is actively decoding frames.
+  final ValueChanged<bool>? onImmersiveChanged;
 
   @override
   State<ReceiveView> createState() => _ReceiveViewState();
@@ -145,6 +150,7 @@ class _ReceiveViewState extends State<ReceiveView> {
       _phase = _Phase.scanning;
       _error = null;
     });
+    widget.onImmersiveChanged?.call(true);
     try {
       await _camera.start(_frame);
       _emit();
@@ -161,6 +167,7 @@ class _ReceiveViewState extends State<ReceiveView> {
       _phase = _Phase.idle;
       _stats = ReceiverStats.empty();
     });
+    widget.onImmersiveChanged?.call(false);
   }
 
   /// Disposes the decoder only when the view created it (an injected decoder
@@ -353,6 +360,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     final r = _result;
     if (r == null) return;
     setState(() => _phase = _Phase.saving);
+    widget.onImmersiveChanged?.call(false);
     try {
       final saved = await _saver.saveFile(
         bytes: r.bytes,
@@ -370,6 +378,7 @@ class _ReceiveViewState extends State<ReceiveView> {
         _error = '$e';
         _phase = _Phase.scanning;
       });
+      widget.onImmersiveChanged?.call(true);
     }
   }
 
@@ -392,11 +401,13 @@ class _ReceiveViewState extends State<ReceiveView> {
       _error = m;
       _phase = _Phase.error;
     });
+    widget.onImmersiveChanged?.call(false);
     _camera.stop();
   }
 
   @override
   void dispose() {
+    widget.onImmersiveChanged?.call(false);
     _releaseDecoder();
     _camera.stop();
     super.dispose();

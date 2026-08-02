@@ -8,6 +8,7 @@
 // Uses a fake file picker + a fake fountain factory (no FFI, no platform
 // channels), so the flow is deterministic and fast.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -356,4 +357,51 @@ void main() {
     expect(factory.encoderCreations, 1);
     expect(factory.lastEncoder?.symbolSize, 2052);
   });
+
+  testWidgets('notifies immersive while preparing, clears on settings',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    // A factory that holds the encode open until the test releases it, so the
+    // transient preparing phase is observable.
+    final gate = Completer<void>();
+    final factory = _GatedFactory(gate);
+    final states = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SendView(
+            filePicker: () => picker(
+              Uint8List.fromList(List<int>.filled(4096, 0x42)),
+              'test.bin',
+            ),
+            factory: factory,
+            refreshRateProbe: () async => 60,
+            onImmersiveChanged: states.add,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('pick_file')));
+    await tester.pump();
+    expect(states, contains(true), reason: 'preparing is immersive');
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(states.last, isFalse, reason: 'settings step is not immersive');
+    expect(find.byKey(const Key('begin_broadcast')), findsOneWidget);
+  });
+}
+
+/// Factory whose encoder creation waits on [gate] until released.
+class _GatedFactory extends FakeFountainFactory {
+  _GatedFactory(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<FountainEncoder> createEncoder(Uint8List data, int mtu) async {
+    await gate.future;
+    return super.createEncoder(data, mtu);
+  }
 }

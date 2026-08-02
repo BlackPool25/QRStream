@@ -33,4 +33,18 @@ sed "s|@EXEC_PATH@|$DEST/qr_data_transfer|" packaging/linux/qrstream.desktop \
   > "$APP_DIR/qrstream.desktop"
 chmod +x "$APP_DIR/qrstream.desktop"
 
+# Register the launcher with the desktop environment (GNOME/KDE/etc.).
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
+fi
+if [ ! -f "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/index.theme" ] \
+  && [ -f /usr/share/icons/hicolor/index.theme ]; then
+  cp /usr/share/icons/hicolor/index.theme \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/index.theme"
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
+fi
+
 echo "Done. Launch QRStream from your app menu, or run: $BIN_DIR/$APP_NAME"

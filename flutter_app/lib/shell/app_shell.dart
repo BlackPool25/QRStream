@@ -55,15 +55,29 @@ class _AppShellState extends State<AppShell> {
 
   int _index = 0;
 
+  /// True while the active destination is in an immersive operation (camera
+  /// scanning or transfer preparation) — the brand header hides then.
+  bool _immersive = false;
+
+  void _setImmersive(bool value) {
+    if (_immersive != value) setState(() => _immersive = value);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final body = _buildBody();
         final destinations = _Destination.values;
+        final content = Column(
+          children: [
+            if (!_immersive) const _BrandHeader(),
+            Expanded(child: body),
+          ],
+        );
         if (constraints.maxWidth < _compactBreakpoint) {
           return Scaffold(
-            body: body,
+            body: content,
             bottomNavigationBar: NavigationBar(
               selectedIndex: _index,
               onDestinationSelected: (i) => setState(() => _index = i),
@@ -89,7 +103,7 @@ class _AppShellState extends State<AppShell> {
                     ),
                 ],
               ),
-              Expanded(child: body),
+              Expanded(child: content),
             ],
           ),
         );
@@ -103,12 +117,49 @@ class _AppShellState extends State<AppShell> {
   Widget _buildBody() {
     switch (_Destination.values[_index]) {
       case _Destination.send:
-        return const SendView();
+        return SendView(onImmersiveChanged: _setImmersive);
       case _Destination.receive:
-        return _linuxOnly ? const _LinuxReceiveCard() : const ReceiveView();
+        return _linuxOnly
+            ? const _LinuxReceiveCard()
+            : ReceiveView(onImmersiveChanged: _setImmersive);
       case _Destination.settings:
         return const SettingsView();
     }
+  }
+}
+
+/// The QRStream brand mark: the logo chip + wordmark, shown as the shell's
+/// header in normal (non-immersive) destinations.
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.asset(
+              'assets/logo.png',
+              width: 36,
+              height: 36,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'QRStream',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontFamily: 'Fraunces',
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

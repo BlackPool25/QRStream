@@ -130,4 +130,27 @@ void main() {
     expect(find.byType(ReceiveView), findsNothing);
     expect(find.byType(SettingsView), findsNothing);
   });
+
+  testWidgets('brand header shows the QRStream logo + name by default',
+      (tester) async {
+    await pumpShell(tester, linuxOnly: false, width: 1200);
+
+    expect(find.text('QRStream'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Image && w.image is AssetImage && (w.image as AssetImage).assetName == 'assets/logo.png',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('brand header shows on Settings too', (tester) async {
+    await pumpShell(tester, linuxOnly: false, width: 1200);
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+
+    expect(find.text('QRStream'), findsOneWidget);
+    expect(find.byType(SettingsView), findsOneWidget);
+  });
 }

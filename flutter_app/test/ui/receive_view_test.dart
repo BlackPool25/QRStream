@@ -171,6 +171,7 @@ Widget _harness({
   required Saver saver,
   required FrameDecoder decoder,
   bool linuxOnly = false,
+  ValueChanged<bool>? onImmersiveChanged,
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -179,6 +180,7 @@ Widget _harness({
         cameraService: camera,
         saver: saver,
         frameDecoder: decoder,
+        onImmersiveChanged: onImmersiveChanged,
       ),
     ),
   );
@@ -366,4 +368,55 @@ void main() {
     expect(camera.started, isFalse);
     expect(fake.saves, isEmpty);
   });
+
+  testWidgets('notifies immersive while scanning, clears on stop', (tester) async {
+    final camera = FakeCameraService(1);
+    final decoder = FakeFrameDecoder(const []);
+    // Make the first decode throw so scanning exits into the error card
+    // (which is what clears the immersive flag on this path).
+    final throwing = _ThrowingDecoder(decoder);
+    final states = <bool>[];
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: FakeSaver().save, openFn: FakeSaver().open),
+        decoder: throwing,
+        onImmersiveChanged: states.add,
+      ),
+    );
+
+    // Start scanning -> immersive on (brand header hides in the shell).
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+    expect(states, contains(true));
+    expect(camera.started, isTrue);
+
+    // The decode failure lands in the error card -> immersive off.
+    await tester.pumpAndSettle();
+    expect(states.last, isFalse);
+    expect(find.text('Could not scan'), findsOneWidget);
+  });
+}
+
+/// Delegates to [inner] but throws on the first decode.
+class _ThrowingDecoder implements FrameDecoder {
+  _ThrowingDecoder(this.inner);
+
+  final FakeFrameDecoder inner;
+  bool _thrown = false;
+
+  @override
+  Future<List<DecodeResult>> decode(
+    CameraImage image, {
+    required int rotationDegrees,
+  }) async {
+    if (!_thrown) {
+      _thrown = true;
+      throw StateError('decode failed (test)');
+    }
+    return inner.decode(image, rotationDegrees: rotationDegrees);
+  }
+
+  @override
+  void dispose() => inner.dispose();
 }

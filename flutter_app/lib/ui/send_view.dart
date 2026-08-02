@@ -41,6 +41,7 @@ class SendView extends StatefulWidget {
     this.factory,
     this.refreshRateProbe,
     this.settingsStore,
+    this.onImmersiveChanged,
   });
 
   /// Overridable in tests; defaults to a real file selector.
@@ -56,6 +57,11 @@ class SendView extends StatefulWidget {
   /// Overridable in tests; defaults to the real [SettingsStore]. Its
   /// persisted defaults pre-fill the settings when a file is first picked.
   final SettingsStore? settingsStore;
+
+  /// Notified when the send flow enters/leaves the preparing (immersive)
+  /// phase — the shell hides its brand header while a transfer is being
+  /// compressed and encoded.
+  final ValueChanged<bool>? onImmersiveChanged;
 
   @override
   State<SendView> createState() => _SendViewState();
@@ -118,6 +124,7 @@ class _SendViewState extends State<SendView> {
       _lastPicked = picked;
       _phase = _SendPhase.preparing;
     });
+    widget.onImmersiveChanged?.call(true);
     await _prepare(picked, _settings);
   }
 
@@ -137,6 +144,7 @@ class _SendViewState extends State<SendView> {
         _settings = settings;
         _phase = _SendPhase.settings;
       });
+      widget.onImmersiveChanged?.call(false);
       // Measure the display refresh rate once, when the settings step is shown.
       if (_refreshRate == null) {
         _detectRefreshRate();
@@ -147,6 +155,7 @@ class _SendViewState extends State<SendView> {
         _error = e.toString();
         _phase = _SendPhase.idle;
       });
+      widget.onImmersiveChanged?.call(false);
     }
   }
 
@@ -157,6 +166,7 @@ class _SendViewState extends State<SendView> {
         _lastPicked != null) {
       // Keep the cached transfer visible while re-preparing the new mtu.
       setState(() => _phase = _SendPhase.preparing);
+      widget.onImmersiveChanged?.call(true);
       _prepare(_lastPicked!, next);
     } else {
       setState(() => _settings = next);
@@ -174,12 +184,14 @@ class _SendViewState extends State<SendView> {
       _lastPicked = null;
       _phase = _SendPhase.idle;
     });
+    widget.onImmersiveChanged?.call(false);
   }
 
   @override
   void dispose() {
     _prepareSeq++;
     _prepared?.encoder.dispose();
+    widget.onImmersiveChanged?.call(false);
     super.dispose();
   }
 
