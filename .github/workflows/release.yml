@@ -211,4 +211,4 @@ jobs:
           ver="${{ github.ref_name }}"; ver="${ver#v}"
           gh release upload ${{ github.ref_name }} \
             build/windows/x64/runner/Release/qrstream-windows-x64.zip \
-            packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber
+            ../packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber

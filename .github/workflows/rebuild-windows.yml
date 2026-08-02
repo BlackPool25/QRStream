@@ -94,4 +94,4 @@ jobs:
           ver="${{ inputs.release-tag }}"; ver="${ver#v}"
           gh release upload "${{ inputs.release-tag }}" \
             build/windows/x64/runner/Release/qrstream-windows-x64.zip \
-            packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber
+            ../packaging/windows/output/qrstream-${ver}-windows-setup.exe --clobber
