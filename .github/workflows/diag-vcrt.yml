@@ -5,21 +5,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Find MSVC redist
+      - name: Locate + copy MSVC CRT DLLs
         shell: pwsh
         run: |
-          Write-Host "=== vswhere ==="
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (Test-Path $vswhere) {
-            & $vswhere -latest -products * -property installationPath
-            Write-Host "--- requires VC.Redist ---"
-            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Redist.14.Latest -property installationPath
-          } else { Write-Host "no vswhere" }
-          Write-Host "=== VS roots ==="
-          Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-          Write-Host "=== search msvcp140.dll (top 5) ==="
-          Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue | Select-Object -First 5 -ExpandProperty FullName
-          Write-Host "=== System32 has? ==="
-          Test-Path "$env:WINDIR\System32\msvcp140.dll"
-          Write-Host "=== 7z ==="
-          Get-ChildItem "C:\Program Files\7-Zip\7z.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+          $vsPath = & $vswhere -latest -products * -property installationPath
+          Write-Host "VS at: $vsPath"
+          $redist = Get-ChildItem "$vsPath\VC\Redist\MSVC" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { [version]($_.Name -replace '[^0-9.]','') } -Descending | Select-Object -First 1
+          if (-not $redist) { Write-Host "NO REDIST DIR"; exit 1 }
+          Write-Host "Redist: $($redist.FullName)"
+          $crt = Get-ChildItem "$($redist.FullName)\x64\Microsoft.VC143.CRT" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $crt) {
+            $crt = Get-ChildItem "$($redist.FullName)" -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Directory
+          }
+          Write-Host "CRT dir: $($crt.FullName)"
+          New-Item -ItemType Directory -Force -Path vcrt-out | Out-Null
+          Copy-Item "$($crt.FullName)\msvcp140.dll" vcrt-out\
+          Copy-Item "$($crt.FullName)\vcruntime140.dll" vcrt-out\
+          Copy-Item "$($crt.FullName)\vcruntime140_1.dll" vcrt-out\
+          Get-ChildItem vcrt-out | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcrt-dlls
+          path: vcrt-out
