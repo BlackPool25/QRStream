@@ -134,10 +134,14 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       # windows/ is gitignored like android/ and linux/; regenerate the
-      # scaffolding so the build works from a fresh clone.
+      # scaffolding and apply the committed template (the CMakeLists carries
+      # the MSVC coroutine-silence define newer plugin toolchains need).
       - name: Generate Windows scaffolding
         working-directory: flutter_app
-        run: flutter create --platforms=windows --org com.qrtransfer --project-name qr_data_transfer .
+        run: |
+          flutter create --platforms=windows --org com.qrtransfer --project-name qr_data_transfer .
+          cp windows_templates/CMakeLists.txt windows/CMakeLists.txt
+          cp windows_templates/runner/CMakeLists.txt windows/runner/CMakeLists.txt
 
       - name: Rust release codec (Windows dll)
         working-directory: flutter_app/rust
