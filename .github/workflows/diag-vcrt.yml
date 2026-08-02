@@ -1,0 +1,25 @@
+name: diag-vcrt
+on: workflow_dispatch
+jobs:
+  diag:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find MSVC redist
+        shell: pwsh
+        run: |
+          Write-Host "=== vswhere ==="
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -latest -products * -property installationPath
+            Write-Host "--- requires VC.Redist ---"
+            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Redist.14.Latest -property installationPath
+          } else { Write-Host "no vswhere" }
+          Write-Host "=== VS roots ==="
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+          Write-Host "=== search msvcp140.dll (top 5) ==="
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue | Select-Object -First 5 -ExpandProperty FullName
+          Write-Host "=== System32 has? ==="
+          Test-Path "$env:WINDIR\System32\msvcp140.dll"
+          Write-Host "=== 7z ==="
+          Get-ChildItem "C:\Program Files\7-Zip\7z.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
