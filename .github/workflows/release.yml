@@ -59,6 +59,14 @@ jobs:
           cp linux_templates/icon.png linux/runner/icon.png
           cp linux_templates/my_application.cc linux/runner/my_application.cc
 
+      # The launcher icon (adaptive + legacy mipmaps) is generated, not
+      # committed (res/ lives under the gitignored android/ tree). A fresh
+      # build otherwise ships the default Flutter icon — run the generator so
+      # the release APK shows the QRStream logo.
+      - name: Generate launcher icon
+        working-directory: flutter_app
+        run: dart android_templates/icon/generate.dart
+
       - name: Rust release codec (Linux dylib)
         working-directory: flutter_app/rust
         run: cargo build --release
@@ -70,6 +78,14 @@ jobs:
       - name: Build APK
         working-directory: flutter_app
         run: flutter build apk --release --target-platform android-arm64
+
+      # Flutter writes the canonical app-release.apk; rename it to carry the
+      # product name + version (qrstream-<tag>.apk) for the release.
+      - name: Rename APK
+        run: |
+          TAG="${{ github.ref_name }}"
+          cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
+             flutter_app/build/app/outputs/flutter-apk/qrstream-${TAG#v}.apk
 
       - name: Install Linux desktop build deps
         run: |
@@ -95,7 +111,7 @@ jobs:
       - name: Checksums
         working-directory: flutter_app
         run: |
-          sha256sum build/app/outputs/flutter-apk/app-release.apk \
+          sha256sum build/app/outputs/flutter-apk/qrstream-*.apk \
                    build/linux/x64/release/qrstream-linux-x64.tar.gz > SHA256SUMS
           sha256sum ../packaging/linux/rpmbuild/RPMS/x86_64/*.rpm >> SHA256SUMS
 
@@ -106,7 +122,7 @@ jobs:
           generate_release_notes: true
           draft: true
           files: |
-            flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            flutter_app/build/app/outputs/flutter-apk/qrstream-*.apk
             flutter_app/build/linux/x64/release/qrstream-linux-x64.tar.gz
             flutter_app/SHA256SUMS
             packaging/linux/rpmbuild/RPMS/x86_64/*.rpm
