@@ -150,6 +150,17 @@ class _SyncEncodeBackend implements EncodeBackend {
   // adaptation that shifts the cadence expectations below.
   final Map<String, QrMatrix?> _cache = {};
 
+  /// Pre-encodes every distinct wire frame so the controller's timed section
+  /// does zero encoding work. The real worker runs in a background isolate, so
+  /// encode cost never blocks the display loop; the sync test backend would
+  /// otherwise pay that cost inside the timing-sensitive tick and, on a slow
+  /// machine, trip the fps adaptation that shifts cadence expectations.
+  void warmUp(Iterable<Uint8List?> frames) {
+    for (final bytes in frames) {
+      _encode(bytes);
+    }
+  }
+
   @override
   void requestFrame({
     required int frameIndex,
@@ -242,14 +253,18 @@ void main() {
     );
     final transfer = prepared ?? sharedPrepared;
     final effectiveSettings = settings ?? transfer.info.settings;
+    final backend = _SyncEncodeBackend(
+      version: bytesPerTile[effectiveSettings.bytesPerTile]!.version,
+    );
+    // Encode once, up front: the timed section below must be pure cadence, not
+    // encode cost (the real worker encodes in a background isolate).
+    backend.warmUp(<Uint8List?>[...transfer.dataFrames, ...transfer.metaFrames]);
     return BroadcastController(
       prepared: transfer,
       settings: effectiveSettings,
       vsync: vsync,
       onStats: onStats,
-      encode: _SyncEncodeBackend(
-        version: bytesPerTile[effectiveSettings.bytesPerTile]!.version,
-      ),
+      encode: backend,
     );
   }
 
