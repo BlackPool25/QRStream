@@ -15,6 +15,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart' hide LayoutId;
@@ -62,7 +63,6 @@ class _BroadcastViewState extends State<BroadcastView>
   late final BroadcastController _controller;
   late final _TileImageCache _imageCache;
   SenderStats? _stats;
-  bool _boost = false;
   bool _fullscreen = false;
   bool _controlsVisible = true;
   Timer? _hideTimer;
@@ -105,9 +105,7 @@ class _BroadcastViewState extends State<BroadcastView>
     _controller.dispose();
     // Leave fullscreen when the broadcast ends (best-effort; fire-and-forget).
     if (_fullscreen) {
-      unawaited(
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge),
-      );
+      unawaited(_setBroadcastFullscreen(false));
     }
     super.dispose();
   }
@@ -136,18 +134,28 @@ class _BroadcastViewState extends State<BroadcastView>
     });
   }
 
-  void _toggleBoost() {
-    _pokeControls();
-    setState(() => _boost = !_boost);
-    _controller.setBoost(_boost);
-  }
-
-  Future<void> _toggleFullscreen() async {
+  void _toggleFullscreen() {
     _pokeControls();
     final next = !_fullscreen;
     setState(() => _fullscreen = next);
+    unawaited(_setBroadcastFullscreen(next));
+  }
+
+  /// Fullscreen the broadcast stage: real window fullscreen on Linux desktop
+  /// (GTK via the runner's `qrstream/window` channel); immersive system bars
+  /// on Android/iOS.
+  static Future<void> _setBroadcastFullscreen(bool on) async {
+    if (Platform.isLinux) {
+      const channel = MethodChannel('qrstream/window');
+      try {
+        await channel.invokeMethod<void>('setFullscreen', <bool>[on]);
+      } on MissingPluginException {
+        // Not running under the desktop runner (e.g. widget tests) — no-op.
+      }
+      return;
+    }
     await SystemChrome.setEnabledSystemUIMode(
-      next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     );
   }
 
@@ -238,12 +246,6 @@ class _BroadcastViewState extends State<BroadcastView>
             onPressed: _toggleFullscreen,
             icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
             label: 'Fullscreen',
-          ),
-          _pillButton(
-            key: const Key('boost_button'),
-            onPressed: _toggleBoost,
-            icon: _boost ? Icons.brightness_high : Icons.brightness_low,
-            label: 'Boost',
           ),
           _pillButton(
             key: const Key('stop_button'),

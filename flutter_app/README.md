@@ -14,7 +14,7 @@ same protocol.
   1×1/1×3/3×1/2×2/3×3, high-refresh toggle
 - Live speed + ETA estimate while you pick settings, live KB/s, k, fps and dropped stats
   on the broadcast stage
-- Boost keeps the screen awake while you hold the device toward the other camera
+- The screen stays awake automatically while you hold the device toward the other camera
 
 **Receive** (Android)
 
@@ -144,7 +144,7 @@ personal sideloading; swap in your own signing config before publishing.
 2. Pick the per-transfer settings: display fps, bytes per tile, tile layout, high refresh.
    The panel shows the expected speed and ETA for your selection.
 3. Tap **Begin broadcast** and hold the screen toward the other device's camera.
-4. **Boost** keeps the screen awake. **Stop** returns to the settings step with the file
+4. **Stop** returns to the settings step with the file
    still prepared, so going back does not re-chunk or re-encode. Only changing bytes per
    tile re-encodes (it changes the QR tile size). "Different file" clears the cache.
 

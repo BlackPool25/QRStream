@@ -14,6 +14,39 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+// Handles "qrstream/window" method calls. Only "setFullscreen" is defined:
+// the argument is [bool on]; the broadcast stage fullscreens/unfullscreens
+// the real GtkWindow (SystemChrome does nothing on Linux desktop).
+static void window_method_call_handler(FlMethodChannel* channel,
+                                      FlMethodCall* method_call,
+                                      gpointer user_data) {
+  GtkWindow* window = GTK_WINDOW(user_data);
+  g_autoptr(FlValue) args = fl_method_call_get_args(method_call);
+  const gchar* method = fl_method_call_get_name(method_call);
+  gboolean handled = FALSE;
+
+  if (g_strcmp0(method, "setFullscreen") == 0 &&
+      fl_value_get_type(args) == FL_VALUE_TYPE_LIST &&
+      fl_value_get_length(args) == 1 &&
+      fl_value_get_type(fl_value_get_list_value(args, 0)) == FL_VALUE_TYPE_BOOL) {
+    const gboolean on = fl_value_get_bool(fl_value_get_list_value(args, 0));
+    if (on) {
+      gtk_window_fullscreen(window);
+    } else {
+      gtk_window_unfullscreen(window);
+    }
+    handled = TRUE;
+  }
+
+  if (handled) {
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+  } else {
+    fl_method_call_respond_not_implemented(method_call, nullptr);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -74,6 +107,16 @@ static void my_application_activate(GApplication* application) {
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+
+  // QRStream "qrstream/window" channel: the Dart side asks for real window
+  // fullscreen while the broadcast is on screen (SystemChrome is a no-op on
+  // Linux desktop).
+  g_autoptr(FlMethodChannel) window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "qrstream/window",
+      FL_METHOD_CODEC(fl_standard_method_codec_new()));
+  fl_method_channel_set_method_call_handler(
+      window_channel, window_method_call_handler, window, nullptr);
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.

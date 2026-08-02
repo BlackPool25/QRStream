@@ -306,7 +306,9 @@ void main() {
     expect(scaffold.backgroundColor, QrGridPainter.espresso);
   });
 
-  testWidgets('boost toggles the wake lock on and off', (tester) async {
+  testWidgets('wake lock is held automatically for the broadcast', (
+    tester,
+  ) async {
     final prepared = await _buildPrepared();
     final toggles = <bool>[];
     tester.binding.defaultBinaryMessenger.setMockMessageHandler(
@@ -324,17 +326,14 @@ void main() {
       );
     });
 
+    // Broadcasting starts with the screen-awake wake lock held (no manual
+    // Boost button anymore).
     await _pumpView(tester, prepared);
-
-    expect(find.byIcon(Icons.brightness_low), findsOneWidget);
-    await tester.tap(find.text('Boost'));
-    await tester.pump();
-    expect(find.byIcon(Icons.brightness_high), findsOneWidget);
     expect(toggles, <bool>[true]);
 
-    await tester.tap(find.text('Boost'));
-    await tester.pump();
-    expect(find.byIcon(Icons.brightness_low), findsOneWidget);
+    // Stopping the broadcast releases it.
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
     expect(toggles, <bool>[true, false]);
   });
 

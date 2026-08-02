@@ -123,7 +123,6 @@ class BroadcastController {
   double _lastStatsTimeMs = 0;
   int _lastStatsTickCount = 0;
   bool _started = false;
-  bool _boost = false;
   bool _disposed = false;
 
   // Encode-pipeline state.
@@ -161,14 +160,15 @@ class BroadcastController {
   /// Tiles per frame for the settings' layout (cols × rows).
   int get tilesPerFrame => _tilesPerFrame;
 
-  /// Begins the broadcast. Idempotent.
+  /// Begins the broadcast. Idempotent. Holds the screen-awake wake lock for
+  /// the whole broadcast (the sender keeps its screen on while broadcasting).
   void start() {
     if (_started) return;
     _started = true;
     _lastRenderTimeMs = 0;
     _lastStatsTimeMs = 0;
     _lastStatsTickCount = 0;
-    if (_boost) unawaited(_applyWakelock(true));
+    unawaited(_applyWakelock(true));
     _ticker.start();
   }
 
@@ -177,12 +177,12 @@ class BroadcastController {
     if (!_started) return;
     _started = false;
     _ticker.stop();
-    if (_boost) unawaited(_applyWakelock(false));
+    unawaited(_applyWakelock(false));
   }
 
-  /// Stops the loop, releases the wake lock if held, disposes the encode
-  /// worker and frees the RaptorQ encoder. Idempotent; call once when the
-  /// broadcast is done.
+  /// Stops the loop, releases the wake lock, disposes the encode worker and
+  /// frees the RaptorQ encoder. Idempotent; call once when the broadcast is
+  /// done.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
@@ -191,14 +191,6 @@ class BroadcastController {
     _frameSignal.dispose();
     _encode.dispose();
     _prepared.encoder.dispose();
-  }
-
-  /// Screen-awake boost: holds the wake lock while boosting. Brightness has
-  /// no standard API — the UI tells the user to raise it.
-  void setBoost(bool active) {
-    if (_boost == active) return;
-    _boost = active;
-    if (_started) unawaited(_applyWakelock(active));
   }
 
   /// The Ticker tick. Ticks that arrive before the frame delay are skipped
