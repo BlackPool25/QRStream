@@ -1,6 +1,14 @@
 /// Frame decoder for the receive flow — turns one camera frame into decoded
 /// QR payloads. The production implementation is native ML Kit barcode
 /// scanning ([MlKitFrameDecoder]); tests inject a fake.
+///
+/// Decode order in [MlKitFrameDecoder.decode]: **ZXing-C++ is primary** — the
+/// native FFI decoder runs first over a tight luma frame; when it finds at
+/// least one QR its payload is authoritative. On an empty result (no QR this
+/// frame) or an FFI failure it degrades to the ML Kit chain (NV21 → YV12 →
+/// PNG file), which stays as the robust fallback for low-light/blurred
+/// frames; the pure-Dart zxing2 DecodePool is the last resort when ML Kit is
+/// broken on the device.
 library;
 
 import 'dart:async';
@@ -13,6 +21,7 @@ import 'package:flutter/services.dart';
 
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import 'package:qr_transfer_core/codec/zxing_cpp_bridge.dart';
 import 'package:qr_transfer_core/receiver/decode_pool.dart';
 
 /// One camera frame's QR payloads. [DecodeResult] is core's type, so the
@@ -33,7 +42,7 @@ abstract class FrameDecoder {
 /// Which input path a [MlKitFrameDecoder.decode] call actually used — the
 /// diagnostic that shows where per-frame time goes (and whether ML Kit is
 /// healthy on the device at all, or the zxing fallback is carrying the load).
-enum MlKitDecodePath { nv21, yv12, pngFile, zxing }
+enum MlKitDecodePath { zxingCpp, nv21, yv12, pngFile, zxing }
 
 /// One decode call's outcome: the path used and its wall-clock duration.
 class MlKitDecodeTiming {
@@ -43,22 +52,41 @@ class MlKitDecodeTiming {
   final Duration duration;
 }
 
-/// Native ML Kit barcode scanner (bundled model — works offline).
+/// Primary native QR decoder (ZXing-C++) with ML Kit as the robust fallback
+/// and pure-Dart zxing2 as the last resort.
 ///
-/// ML Kit is dramatically more robust than pure-Dart zxing2 (rotation, low
-/// light, blur, perspective) and it consumes the raw YUV planes directly —
-/// the only work on the UI thread is a memcpy that concatenates the planes,
-/// so the per-frame YUV→RGB conversion is gone entirely.
+/// ZXing-C++ runs first on a tight grayscale luma frame — no YUV→RGB
+/// conversion, a single synchronous FFI call per frame. When it finds at
+/// least one QR the result is authoritative; an empty result or an FFI
+/// failure falls through to ML Kit (bundled model — works offline), which
+/// is more robust in low light, blur and perspective. zxing2's isolate pool
+/// only carries a device where ML Kit is entirely broken.
 class MlKitFrameDecoder implements FrameDecoder {
-  MlKitFrameDecoder({BarcodeScanner? scanner, DecodePool? zxing})
-    : this._(
-        // QR-only: ML Kit decodes every barcode format by default, which is
-        // its #1 documented latency cost. This stream only ever carries QR.
-        scanner ?? BarcodeScanner(formats: const [BarcodeFormat.qrCode]),
-        zxing,
-      );
+  MlKitFrameDecoder({
+    BarcodeScanner? scanner,
+    DecodePool? zxing,
+    ZxingCppDecode? zxingCpp,
+  }) : this._(
+         // QR-only: ML Kit decodes every barcode format by default, which is
+         // its #1 documented latency cost. This stream only ever carries QR.
+         scanner ?? BarcodeScanner(formats: const [BarcodeFormat.qrCode]),
+         zxing,
+         // Default: the real ZXing-C++ facade. A broken/absent FFI must
+         // degrade to ML Kit, never throw, so the wrapper swallows every
+         // error and reports "no QR". The closure is created eagerly but the
+         // facade's Rust-lib load stays lazy — the default constructor never
+         // touches the FFI.
+         zxingCpp ??
+             (Uint8List luma, int width, int height) {
+               try {
+                 return decodeLuma(luma, width, height);
+               } catch (_) {
+                 return const [];
+               }
+             },
+       );
 
-  MlKitFrameDecoder._(this._scanner, this._zxing);
+  MlKitFrameDecoder._(this._scanner, this._zxing, this._zxingCpp);
 
   final BarcodeScanner _scanner;
 
@@ -77,6 +105,10 @@ class MlKitFrameDecoder implements FrameDecoder {
   /// spawn its isolates.
   DecodePool? _zxing;
 
+  /// Primary decoder: the native ZXing-C++ FFI seam, injected so tests can
+  /// fake it. Runs first over the tight luma frame.
+  final ZxingCppDecode _zxingCpp;
+
   @override
   Future<List<DecodeResult>> decode(
     CameraImage image, {
@@ -85,6 +117,29 @@ class MlKitFrameDecoder implements FrameDecoder {
     final stopwatch = Stopwatch()..start();
     final planes = image.planes;
     if (planes.isEmpty) return const [];
+
+    // PRIMARY — ZXing-C++ over the tight luma frame. Synchronous FFI, no
+    // YUV→RGB conversion. Its payload is authoritative whenever it finds at
+    // least one QR; an empty result or a thrown error falls through to ML
+    // Kit (low-light/blurred frames may decode natively when ZXing-C++
+    // cannot, and a broken FFI must never take the receive path down).
+    try {
+      final payloads = _zxingCpp(
+        cameraImageToLuma(image),
+        image.width,
+        image.height,
+      );
+      if (payloads.isNotEmpty) {
+        _lastTiming = MlKitDecodeTiming(
+          MlKitDecodePath.zxingCpp,
+          stopwatch.elapsed,
+        );
+        return [for (final payload in payloads) DecodeResult(bytes: payload)];
+      }
+    } catch (_) {
+      // FFI failure — fall through to ML Kit.
+    }
+
     final rotation = _rotationFor(rotationDegrees);
     final size = Size(image.width.toDouble(), image.height.toDouble());
 
@@ -102,7 +157,10 @@ class MlKitFrameDecoder implements FrameDecoder {
           rotation,
           image.width,
         );
-        _lastTiming = MlKitDecodeTiming(_pathFor(attempt.format), stopwatch.elapsed);
+        _lastTiming = MlKitDecodeTiming(
+          _pathFor(attempt.format),
+          stopwatch.elapsed,
+        );
         return barcodes;
       } on PlatformException {
         // Try the next layout.
@@ -116,7 +174,10 @@ class MlKitFrameDecoder implements FrameDecoder {
       final fileInput = await _filePathInput(image, size, rotation);
       try {
         final barcodes = await _processInput(fileInput);
-        _lastTiming = MlKitDecodeTiming(MlKitDecodePath.pngFile, stopwatch.elapsed);
+        _lastTiming = MlKitDecodeTiming(
+          MlKitDecodePath.pngFile,
+          stopwatch.elapsed,
+        );
         return barcodes;
       } finally {
         // The fallback fires per frame on a broken device — never leave
@@ -163,6 +224,24 @@ class MlKitFrameDecoder implements FrameDecoder {
       rgb[o + 2] = rgba[p + 2];
     }
     return rgb;
+  }
+
+  /// Extracts the tight `width * height` grayscale (luma) buffer the native
+  /// ZXing-C++ decoder consumes — 1 byte per pixel, row-major, exactly
+  /// `width * height` bytes. Mirrors [cameraImageToRgb]: a single-plane frame
+  /// (camera_android's tight NV21) contributes its first `width * height`
+  /// bytes directly; a 3-plane YUV420 frame contributes the Y plane with
+  /// row-stride awareness (padding stripped).
+  @visibleForTesting
+  static Uint8List cameraImageToLuma(CameraImage image) {
+    final out = Uint8List(image.width * image.height);
+    if (image.planes.length == 1) {
+      final bytes = image.planes[0].bytes;
+      out.setRange(0, out.length, bytes, 0);
+    } else {
+      _unpackPlane(image.planes[0], image.width, image.height, out, 0, 1);
+    }
+    return out;
   }
 
   /// Builds the byte-format attempts for ML Kit in the order a device should

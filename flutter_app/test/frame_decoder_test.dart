@@ -233,6 +233,66 @@ void main() {
     });
   });
 
+  group('cameraImageToLuma', () {
+    test('single-plane NV21 → tight width*height grayscale buffer', () {
+      const w = 4, h = 4;
+      final nv21 = Uint8List(w * h * 3 ~/ 2);
+      for (var i = 0; i < w * h; i++) {
+        nv21[i] = (10 + i) & 0xff; // distinct Y values
+      }
+      nv21.fillRange(w * h, nv21.length, 128); // chroma
+      final image = _singlePlaneImage(nv21, w, h);
+
+      final luma = MlKitFrameDecoder.cameraImageToLuma(image);
+
+      expect(luma.length, w * h);
+      for (var i = 0; i < w * h; i++) {
+        expect(luma[i], (10 + i) & 0xff, reason: 'luma pixel $i');
+      }
+    });
+
+    test('3-plane YUV420 → tight width*height Y plane, row-stride aware', () {
+      const w = 8, h = 6, stride = w + 2;
+      // Row-padded Y plane: `stride` bytes per row, 2 padding bytes each.
+      final y = Uint8List(stride * h);
+      for (var row = 0; row < h; row++) {
+        for (var col = 0; col < w; col++) {
+          y[row * stride + col] = (row * w + col) & 0xff;
+        }
+        y[row * stride + w] = 0xEE;
+        y[row * stride + w + 1] = 0xEE;
+      }
+      final u = Uint8List(w * h ~/ 4)..fillRange(0, w * h ~/ 4, 128);
+      final v = Uint8List(w * h ~/ 4)..fillRange(0, w * h ~/ 4, 128);
+      final image = CameraImage.fromPlatformInterface(
+        CameraImageData(
+          format: const CameraImageFormat(ImageFormatGroup.yuv420, raw: 35),
+          planes: [
+            CameraImagePlane(bytes: y, bytesPerRow: stride),
+            CameraImagePlane(bytes: u, bytesPerRow: w ~/ 2),
+            CameraImagePlane(bytes: v, bytesPerRow: w ~/ 2),
+          ],
+          height: h,
+          width: w,
+        ),
+      );
+
+      final luma = MlKitFrameDecoder.cameraImageToLuma(image);
+
+      expect(luma.length, w * h);
+      // Spot-check every pixel: tight row-major, padding stripped.
+      for (var row = 0; row < h; row++) {
+        for (var col = 0; col < w; col++) {
+          expect(
+            luma[row * w + col],
+            y[row * stride + col],
+            reason: 'row $row col $col',
+          );
+        }
+      }
+    });
+  });
+
   test(
     'ML Kit broken on the device → zxing DecodePool decodes byte-exact',
     () async {
@@ -254,6 +314,9 @@ void main() {
       final decoder = MlKitFrameDecoder(
         scanner: _FailingScanner(),
         zxing: DecodePool(),
+        // zxing-cpp must not intercept this frame — the test exercises the
+        // zxing2-pool last resort.
+        zxingCpp: (_, _, _) => const [],
       );
       final results = await decoder.decode(img, rotationDegrees: 0);
       decoder.dispose();
@@ -274,7 +337,12 @@ void main() {
     nv21.fillRange(w * h, nv21.length, 128);
     final image = _singlePlaneImage(nv21, w, h);
     final scanner = _RecordingScanner();
-    final decoder = MlKitFrameDecoder(scanner: scanner);
+    final decoder = MlKitFrameDecoder(
+      scanner: scanner,
+      // zxing-cpp finds nothing this frame — the healthy ML Kit nv21 path is
+      // the one under test.
+      zxingCpp: (_, _, _) => const [],
+    );
 
     final results = await decoder.decode(image, rotationDegrees: 0);
 
@@ -282,6 +350,87 @@ void main() {
     expect(results.single.bytes, <int>[1, 2, 3]);
     expect(scanner.calls, 1);
     expect(scanner.inputFormats.first, InputImageFormat.nv21);
+    expect(decoder.lastTiming?.path, MlKitDecodePath.nv21);
+  });
+
+  test('zxingCpp primary path decodes byte-exact via injected fake', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final frame = _wireFrame(0);
+    final image = _rgbImage(frame);
+    // Tight single-plane NV21: Y = BT.601 luma of the pixel, U = V = 128.
+    final nv21 = Uint8List(image.px * image.px * 3 ~/ 2);
+    for (var p = 0; p < image.px * image.px; p++) {
+      nv21[p] =
+          (77 * image.rgb[p * 3] +
+              150 * image.rgb[p * 3 + 1] +
+              29 * image.rgb[p * 3 + 2]) >>
+          8;
+    }
+    nv21.fillRange(image.px * image.px, nv21.length, 128);
+    final img = _singlePlaneImage(nv21, image.px, image.px);
+
+    final scanner = _RecordingScanner();
+    final decoder = MlKitFrameDecoder(
+      scanner: scanner,
+      zxingCpp: (luma, w, h) => [frame],
+    );
+    final results = await decoder.decode(img, rotationDegrees: 0);
+    decoder.dispose();
+
+    expect(results, hasLength(1));
+    expect(results.single.bytes, equals(frame));
+    expect(decoder.lastTiming?.path, MlKitDecodePath.zxingCpp);
+    expect(
+      scanner.calls,
+      0,
+      reason: 'ML Kit must never run when zxing-cpp decodes',
+    );
+  });
+
+  test('zxingCpp empty → ML Kit nv21 wins', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const w = 4, h = 4;
+    final nv21 = Uint8List(w * h * 3 ~/ 2);
+    for (var i = 0; i < w * h; i++) {
+      nv21[i] = 100;
+    }
+    nv21.fillRange(w * h, nv21.length, 128);
+    final image = _singlePlaneImage(nv21, w, h);
+    final scanner = _RecordingScanner();
+    final decoder = MlKitFrameDecoder(
+      scanner: scanner,
+      zxingCpp: (_, _, _) => const [],
+    );
+
+    final results = await decoder.decode(image, rotationDegrees: 0);
+
+    expect(results, hasLength(1));
+    expect(results.single.bytes, <int>[1, 2, 3]);
+    expect(scanner.calls, 1);
+    expect(scanner.inputFormats.first, InputImageFormat.nv21);
+    expect(decoder.lastTiming?.path, MlKitDecodePath.nv21);
+  });
+
+  test('zxingCpp throws → ML Kit nv21 still handles', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const w = 4, h = 4;
+    final nv21 = Uint8List(w * h * 3 ~/ 2);
+    for (var i = 0; i < w * h; i++) {
+      nv21[i] = 100;
+    }
+    nv21.fillRange(w * h, nv21.length, 128);
+    final image = _singlePlaneImage(nv21, w, h);
+    final scanner = _RecordingScanner();
+    final decoder = MlKitFrameDecoder(
+      scanner: scanner,
+      zxingCpp: (_, _, _) => throw StateError('ffi down'),
+    );
+
+    final results = await decoder.decode(image, rotationDegrees: 0);
+
+    expect(results, hasLength(1));
+    expect(results.single.bytes, <int>[1, 2, 3]);
+    expect(scanner.calls, 1);
     expect(decoder.lastTiming?.path, MlKitDecodePath.nv21);
   });
 
