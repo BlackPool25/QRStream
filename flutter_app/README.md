@@ -1,6 +1,6 @@
-# QR Data Transfer (Flutter app)
+# QRStream (Flutter app)
 
-The native Flutter port of the QR Data Transfer PWA. It broadcasts a file as a continuous
+The native Flutter port of the QRStream PWA. It broadcasts a file as a continuous
 stream of QR codes on your screen; the other device scans them with its camera, reassembles
 the file with a RaptorQ fountain codec, verifies the SHA-256, and saves it. Fully offline:
 no network, no pairing, no server. Wire-compatible with the PWA, so the two apps talk the
@@ -28,9 +28,7 @@ does send + receive.
 
 ## Prerequisites
 
-- **Flutter 3.44.8+ (stable)**. This environment uses Flutter 3.44.8 at
-  `~/development/flutter/bin`:
-  `export PATH="$HOME/development/flutter/bin:$PATH"`
+- **Flutter 3.44.8+ (stable) on your PATH**.
 - **Android SDK** (only for the APK)
 - **GTK3 dev headers on Linux** (`libgtk-3-dev`)
 - **Rust toolchain** (cargo), for the native codec
@@ -74,11 +72,11 @@ are committed as templates here):
   registration and reflection; AGP 9's R8 full mode strips those classes, and the release
   build then crashes at scan time with "getClass() on a null object reference" (debug
   builds are unaffected). No dependency exclusions are needed: the plugin's
-  `com.google.mlkit:barcode-scanning:17.3.0` *is* the bundled model variant, so scanning
+  `com.google.mlkit:barcode-scanning:17.3.0` _is_ the bundled model variant, so scanning
   already runs fully in-process with no Play Services at runtime.
 - Regenerate the launcher icon set (the real QRSTREAM QR code on the espresso
   `#161312` background, adaptive + legacy mipmaps) into the generated `android/` tree:
-  `~/dart-sdk/bin/dart android_templates/icon/generate.dart` (run from `flutter_app/`;
+  `dart android_templates/icon/generate.dart` (run from `flutter_app/`;
   deterministic — safe to re-run). The script uses the app's own `package:qr` encoder and
   only needs ImageMagick (`magick`) on PATH.
 
@@ -116,8 +114,8 @@ Dart SDK, not Flutter's bundled one:
 
 ```bash
 cd flutter_app/core
-~/dart-sdk/bin/dart pub get
-~/dart-sdk/bin/dart test
+dart pub get
+dart test
 ```
 
 ### 4. The app
@@ -161,7 +159,8 @@ camera view.
 
 ## Testing
 
-From `docs/FLUTTER-PLAN.md` §5:
+Run these from the repo root; the PWA suites run at the root, the others in their
+subfolders.
 
 ```bash
 # Flutter app (lint + widget tests)
@@ -169,19 +168,20 @@ cd flutter_app
 flutter analyze
 flutter test
 
-# Pure-Dart core (standalone Dart)
+# Pure-Dart core (standalone Dart — requires the Dart SDK; Flutter's bundled
+# dart works too: `flutter` is at $FLUTTER_ROOT/bin, dart at $FLUTTER_ROOT/bin/dart)
 cd flutter_app/core
-~/dart-sdk/bin/dart analyze
-~/dart-sdk/bin/dart test
+dart pub get
+dart analyze
+dart test
 
-# Rust core
+# Rust core (native codec)
 cd flutter_app/rust
 cargo test
 # RaptorQ is compiled optimized in dev/test builds (see Cargo.toml), so the
 # full suite runs in ~9 s; `cargo test --release` is fastest (~0.1 s).
 
-# PWA suites (kept green: the demo and the interop reference)
-cd /home/shreyas/projects/qr-data-transfer
+# PWA suites (the web demo / interop reference); run from the repo root
 npm test
 npx playwright test   # needs `npm run build` first
 ```
@@ -193,8 +193,8 @@ npx playwright test   # needs `npm run build` first
 
 ## Verified here vs on-device
 
-| Verified in this environment | Needs a real device |
-| --- | --- |
+| Verified in this environment                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Needs a real device                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `flutter analyze` + `flutter test` (64 widget tests), core `dart analyze` + `dart test` (255 tests), `cargo test`, `flutter build linux --debug`, `flutter build apk --debug` **and `--release`** (arm64-only ~19 MB (`--target-platform android-arm64`; the native codec compiles only for arm64)). Interop proofs: the FFI decoder reassembles PWA-produced packets byte-identical (Rust test + full-stack Dart test). The Android APK now builds green after replacing the abandoned `media_store_plus` plugin with an in-house `saveToDownloads`/`openFile` MethodChannel (MediaStore, no temp file). | Camera scanning throughput (whether zxing2 decode keeps up with a real sensor), MediaStore save + tap-to-open on a real Android phone (API 29+ and the legacy API ≤ 28 permission path), xdg-open reveal/open on Linux, high-refresh detection on a real 90/120 Hz display, and honest end-to-end transfer rates. |
 
 The release APK is signed with the debug key; add your own signing config before publishing.
