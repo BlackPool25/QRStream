@@ -13,6 +13,10 @@ export default tseslint.config(
       '.playwright',
       '.omo',
       '.codegraph',
+      '.archive',
+      'flutter_app/build',
+      'flutter_app/.dart_tool',
+      'flutter_app/rust/target',
       '*.local',
     ],
   },
@@ -53,6 +57,9 @@ export default tseslint.config(
       sourceType: 'module',
       globals: {
         ...globals.node,
+        // scripts/ may drive a browser via Playwright and run page.evaluate
+        // code that references DOM globals (document/window/HTMLCanvasElement).
+        ...globals.browser,
       },
     },
   },
