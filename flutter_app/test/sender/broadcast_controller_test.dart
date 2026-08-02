@@ -143,6 +143,13 @@ class _SyncEncodeBackend implements EncodeBackend {
   final int version;
   final List<(int, List<QrMatrix?>)> _ready = [];
 
+  // Mirrors the real QrEncodeWorker's per-esi cache: identical wire frames
+  // (the round-robin revisits the same k source symbols) must not be
+  // re-encoded, otherwise the first tick encodes lookahead × tiles V27 QR
+  // matrices synchronously and, on a slow CI machine, trips the fps
+  // adaptation that shifts the cadence expectations below.
+  final Map<String, QrMatrix?> _cache = {};
+
   @override
   void requestFrame({
     required int frameIndex,
@@ -154,11 +161,14 @@ class _SyncEncodeBackend implements EncodeBackend {
 
   QrMatrix? _encode(Uint8List? bytes) {
     if (bytes == null) return null;
-    try {
-      return encodeQrBytes(bytes, version: version);
-    } on Exception {
-      return null;
-    }
+    final key = String.fromCharCodes(bytes);
+    return _cache.putIfAbsent(key, () {
+      try {
+        return encodeQrBytes(bytes, version: version);
+      } on Exception {
+        return null;
+      }
+    });
   }
 
   @override
