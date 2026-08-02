@@ -22,7 +22,10 @@ mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 # Stage the desktop file so the spec's %{_sourcedir} reference resolves.
 cp packaging/linux/qrstream.desktop "$TOPDIR/SOURCES/"
 
-rpmbuild -bb \
+# --nodeps: the spec's BuildRequires (e.g. patchelf) are installed via the
+# host package manager, but rpmbuild's own resolver on Debian/Ubuntu cannot
+# verify them — skipping the check is harmless (the tools are present).
+rpmbuild -bb --nodeps \
   --define "_topdir $TOPDIR" \
   --define "bundle_dir $(pwd)/$BUNDLE" \
   packaging/linux/QRStream.spec
