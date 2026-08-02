@@ -189,9 +189,11 @@ class _ReceiveViewState extends State<ReceiveView> {
     final decoder = _decoder;
     if (decoder == null || _decoding) return; // in-flight guard
     _decoding = true;
+    final stopwatch = Stopwatch()..start();
     unawaited(
       decoder.decode(image, rotationDegrees: rotationDegrees).then((rs) {
         _decoding = false;
+        _diagnose(decoder, stopwatch.elapsed);
         if (!mounted) return;
         // Decodes serialize through [_queue], exactly like the PWA's
         // feedQueue, so feed order is preserved and start()/feedMore() never
@@ -206,6 +208,21 @@ class _ReceiveViewState extends State<ReceiveView> {
         if (mounted && _phase == _Phase.scanning) _fail('Decode failed: $e');
       }),
     );
+  }
+
+  /// Decode-path diagnostic: logs when a frame decode was slow (>100 ms,
+  /// blowing the ~66 ms frame budget) or the zxing pool had to carry it
+  /// (ML Kit broken on this device) — the two signals that explain a
+  /// throughput drop.
+  void _diagnose(FrameDecoder decoder, Duration duration) {
+    if (decoder is! MlKitFrameDecoder) return;
+    final timing = decoder.lastTiming;
+    if (timing == null) return;
+    if (timing.path == MlKitDecodePath.zxing || duration.inMilliseconds > 100) {
+      debugPrint(
+        'decode: ${timing.path.name} ${duration.inMilliseconds}ms',
+      );
+    }
   }
 
   Future<void> _decoded(List<DecodeResult> rs) async {

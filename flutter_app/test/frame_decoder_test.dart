@@ -260,6 +260,7 @@ void main() {
 
       expect(results, hasLength(1));
       expect(results.single.bytes, equals(frame));
+      expect(decoder.lastTiming?.path, MlKitDecodePath.zxing);
     },
   );
 
@@ -281,5 +282,11 @@ void main() {
     expect(results.single.bytes, <int>[1, 2, 3]);
     expect(scanner.calls, 1);
     expect(scanner.inputFormats.first, InputImageFormat.nv21);
+    expect(decoder.lastTiming?.path, MlKitDecodePath.nv21);
+  });
+
+  test('default decoder restricts ML Kit to QR_CODE only (faster decode)', () {
+    final decoder = MlKitFrameDecoder();
+    expect(decoder.scanner.formats, [BarcodeFormat.qrCode]);
   });
 }

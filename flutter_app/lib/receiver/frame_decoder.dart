@@ -30,6 +30,19 @@ abstract class FrameDecoder {
   void dispose();
 }
 
+/// Which input path a [MlKitFrameDecoder.decode] call actually used — the
+/// diagnostic that shows where per-frame time goes (and whether ML Kit is
+/// healthy on the device at all, or the zxing fallback is carrying the load).
+enum MlKitDecodePath { nv21, yv12, pngFile, zxing }
+
+/// One decode call's outcome: the path used and its wall-clock duration.
+class MlKitDecodeTiming {
+  MlKitDecodeTiming(this.path, this.duration);
+
+  final MlKitDecodePath path;
+  final Duration duration;
+}
+
 /// Native ML Kit barcode scanner (bundled model — works offline).
 ///
 /// ML Kit is dramatically more robust than pure-Dart zxing2 (rotation, low
@@ -38,11 +51,27 @@ abstract class FrameDecoder {
 /// so the per-frame YUV→RGB conversion is gone entirely.
 class MlKitFrameDecoder implements FrameDecoder {
   MlKitFrameDecoder({BarcodeScanner? scanner, DecodePool? zxing})
-    : this._(scanner ?? BarcodeScanner(), zxing);
+    : this._(
+        // QR-only: ML Kit decodes every barcode format by default, which is
+        // its #1 documented latency cost. This stream only ever carries QR.
+        scanner ?? BarcodeScanner(formats: const [BarcodeFormat.qrCode]),
+        zxing,
+      );
 
   MlKitFrameDecoder._(this._scanner, this._zxing);
 
   final BarcodeScanner _scanner;
+
+  /// Diagnostic: path + duration of the most recent [decode] call, surfaced
+  /// by the receive view to explain per-frame decode cost.
+  MlKitDecodeTiming? get lastTiming => _lastTiming;
+
+  /// The underlying scanner — exposed so tests can assert the default
+  /// format restriction.
+  @visibleForTesting
+  BarcodeScanner get scanner => _scanner;
+
+  MlKitDecodeTiming? _lastTiming;
 
   /// Last-resort zxing2 decode pool, created lazily — healthy devices never
   /// spawn its isolates.
@@ -53,6 +82,7 @@ class MlKitFrameDecoder implements FrameDecoder {
     CameraImage image, {
     required int rotationDegrees,
   }) async {
+    final stopwatch = Stopwatch()..start();
     final planes = image.planes;
     if (planes.isEmpty) return const [];
     final rotation = _rotationFor(rotationDegrees);
@@ -72,6 +102,7 @@ class MlKitFrameDecoder implements FrameDecoder {
           rotation,
           image.width,
         );
+        _lastTiming = MlKitDecodeTiming(_pathFor(attempt.format), stopwatch.elapsed);
         return barcodes;
       } on PlatformException {
         // Try the next layout.
@@ -84,7 +115,9 @@ class MlKitFrameDecoder implements FrameDecoder {
     try {
       final fileInput = await _filePathInput(image, size, rotation);
       try {
-        return await _processInput(fileInput);
+        final barcodes = await _processInput(fileInput);
+        _lastTiming = MlKitDecodeTiming(MlKitDecodePath.pngFile, stopwatch.elapsed);
+        return barcodes;
       } finally {
         // The fallback fires per frame on a broken device — never leave
         // the temp PNG behind.
@@ -97,8 +130,15 @@ class MlKitFrameDecoder implements FrameDecoder {
       // ML Kit is entirely broken on this device — fall back to the
       // pure-Dart zxing2 decode pool so scanning still works.
     }
-    return _decodeWithZxing(image);
+    final barcodes = await _decodeWithZxing(image);
+    _lastTiming = MlKitDecodeTiming(MlKitDecodePath.zxing, stopwatch.elapsed);
+    return barcodes;
   }
+
+  static MlKitDecodePath _pathFor(InputImageFormat format) => switch (format) {
+    InputImageFormat.nv21 => MlKitDecodePath.nv21,
+    _ => MlKitDecodePath.yv12,
+  };
 
   /// Last-resort decode: core's isolate-backed zxing2 pool on the RGB frame.
   /// The pool is created lazily (spawning isolates per device, not per frame)
