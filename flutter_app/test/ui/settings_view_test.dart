@@ -28,18 +28,20 @@ void main() {
   }
 
   Map<String, Object> defaults() => {
-        'qrstream.defaults.bytesPerTile': '1k',
-        'qrstream.defaults.layout': 'grid4',
-        'qrstream.defaults.targetFps': 15,
-        'qrstream.defaults.highRefresh': false,
-      };
+    'qrstream.defaults.bytesPerTile': '1k',
+    'qrstream.defaults.layout': 'grid4',
+    'qrstream.defaults.targetFps': 15,
+    'qrstream.defaults.highRefresh': false,
+  };
 
   testWidgets('editor loads and shows the persisted defaults', (tester) async {
     await pumpView(tester, initial: defaults());
 
     expect(find.text('Default transfer settings'), findsOneWidget);
     expect(
-      find.text('Used to pre-fill each send. Change per-file in the send flow.'),
+      find.text(
+        'Used to pre-fill each send. Change per-file in the send flow.',
+      ),
       findsOneWidget,
     );
     // 15 fps selected.
@@ -60,8 +62,9 @@ void main() {
     expect(find.byKey(const Key('high_refresh_switch')), findsOneWidget);
   });
 
-  testWidgets('tapping fps/bytes/layout/high-refresh persists immediately',
-      (tester) async {
+  testWidgets('tapping fps/bytes/layout/high-refresh persists immediately', (
+    tester,
+  ) async {
     await pumpView(tester, initial: defaults());
 
     await tester.tap(find.text('24'));
@@ -88,12 +91,15 @@ void main() {
   });
 
   testWidgets('Restore defaults resets the editor and saves', (tester) async {
-    await pumpView(tester, initial: {
-      'qrstream.defaults.bytesPerTile': '2k',
-      'qrstream.defaults.layout': 'row3',
-      'qrstream.defaults.targetFps': 24,
-      'qrstream.defaults.highRefresh': true,
-    });
+    await pumpView(
+      tester,
+      initial: {
+        'qrstream.defaults.bytesPerTile': '2k',
+        'qrstream.defaults.layout': 'row3',
+        'qrstream.defaults.targetFps': 24,
+        'qrstream.defaults.highRefresh': true,
+      },
+    );
 
     await tester.tap(find.byKey(const Key('restore_defaults')));
     await tester.pumpAndSettle();
@@ -119,5 +125,33 @@ void main() {
       find.byKey(const Key('fps_group')),
     );
     expect(fps.selected, {defaultTransferSettings.targetFps});
+  });
+
+  testWidgets('row2 and column2 layout chips render in the settings view', (
+    tester,
+  ) async {
+    await pumpView(tester, initial: defaults());
+
+    expect(find.byKey(const Key('layout_row2')), findsOneWidget);
+    expect(find.byKey(const Key('layout_column2')), findsOneWidget);
+    expect(find.text('1×2'), findsOneWidget);
+    expect(find.text('2×1'), findsOneWidget);
+  });
+
+  testWidgets('selecting row2 persists the layout default immediately', (
+    tester,
+  ) async {
+    await pumpView(tester, initial: defaults());
+
+    await tester.tap(find.byKey(const Key('layout_row2')));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('qrstream.defaults.layout'), 'row2');
+    // The UI reflects the new value too.
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(const Key('layout_row2'))).selected,
+      isTrue,
+    );
   });
 }

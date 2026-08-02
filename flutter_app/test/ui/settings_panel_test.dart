@@ -10,16 +10,14 @@ import 'package:qr_transfer_core/protocol/constants.dart' as qrc;
 import 'package:qr_data_transfer/ui/settings_panel.dart';
 
 void main() {
-  Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: child),
-      );
+  Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
   qrc.TransferSettings base() => const qrc.TransferSettings(
-        bytesPerTile: qrc.BytesPerTileId.oneK,
-        layout: qrc.LayoutId.grid4,
-        targetFps: 15,
-        highRefresh: false,
-      );
+    bytesPerTile: qrc.BytesPerTileId.oneK,
+    layout: qrc.LayoutId.grid4,
+    targetFps: 15,
+    highRefresh: false,
+  );
 
   Future<qrc.TransferSettings? Function()> captureChange(
     WidgetTester tester, {
@@ -47,8 +45,9 @@ void main() {
     return () => changed;
   }
 
-  testWidgets('renders all control groups + file header + estimate',
-      (tester) async {
+  testWidgets('renders all control groups + file header + estimate', (
+    tester,
+  ) async {
     await captureChange(tester);
 
     expect(find.byKey(const Key('fps_group')), findsOneWidget);
@@ -62,8 +61,9 @@ void main() {
     expect(find.text('V27 · 2×2'), findsOneWidget);
   });
 
-  testWidgets('30 fps is disabled without high-refresh (60 Hz detected)',
-      (tester) async {
+  testWidgets('30 fps is disabled without high-refresh (60 Hz detected)', (
+    tester,
+  ) async {
     await captureChange(tester, refreshRate: 60);
 
     final seg = tester.widget<SegmentedButton<int>>(
@@ -79,8 +79,9 @@ void main() {
     expect(find.text('Detected 60 Hz display'), findsOneWidget);
   });
 
-  testWidgets('30 fps + high-refresh switch enabled on a 120 Hz display',
-      (tester) async {
+  testWidgets('30 fps + high-refresh switch enabled on a 120 Hz display', (
+    tester,
+  ) async {
     await captureChange(
       tester,
       settings: const qrc.TransferSettings(
@@ -104,8 +105,9 @@ void main() {
     expect(find.text('Detected 120 Hz display'), findsOneWidget);
   });
 
-  testWidgets('tapping a layout chip fires onChanged with that layout',
-      (tester) async {
+  testWidgets('tapping a layout chip fires onChanged with that layout', (
+    tester,
+  ) async {
     final readChanged = await captureChange(tester);
     await tester.tap(find.byKey(const Key('layout_row3')));
     await tester.pump();
@@ -115,24 +117,27 @@ void main() {
     expect(changed?.bytesPerTile, qrc.BytesPerTileId.oneK);
   });
 
-  testWidgets('tapping a fps segment fires onChanged with that fps',
-      (tester) async {
+  testWidgets('tapping a fps segment fires onChanged with that fps', (
+    tester,
+  ) async {
     final readChanged = await captureChange(tester);
     await tester.tap(find.text('24'));
     await tester.pump();
     expect(readChanged()?.targetFps, 24);
   });
 
-  testWidgets('tapping a bytes segment fires onChanged with that tile size',
-      (tester) async {
+  testWidgets('tapping a bytes segment fires onChanged with that tile size', (
+    tester,
+  ) async {
     final readChanged = await captureChange(tester);
     await tester.tap(find.text('2.5 KB'));
     await tester.pump();
     expect(readChanged()?.bytesPerTile, qrc.BytesPerTileId.twoAndHalfK);
   });
 
-  testWidgets('estimate reflects the selected settings (2 KB, row3, 30fps)',
-      (tester) async {
+  testWidgets('estimate reflects the selected settings (2 KB, row3, 30fps)', (
+    tester,
+  ) async {
     await captureChange(
       tester,
       settings: const qrc.TransferSettings(
@@ -145,5 +150,68 @@ void main() {
     );
     // estimateThroughput({2k,row3,30,hr}) = 30×(3−1/32)×2048 ≈ 182400 B/s ≈ 178 KB/s
     expect(find.text('~178 KB/s'), findsOneWidget);
+  });
+
+  testWidgets('row2 and column2 layout chips render with labels 1×2 / 2×1', (
+    tester,
+  ) async {
+    await captureChange(tester);
+
+    expect(find.byKey(const Key('layout_row2')), findsOneWidget);
+    expect(find.byKey(const Key('layout_column2')), findsOneWidget);
+    expect(find.text('1×2'), findsOneWidget);
+    expect(find.text('2×1'), findsOneWidget);
+  });
+
+  testWidgets('tapping the row2 chip fires onChanged with LayoutId.row2', (
+    tester,
+  ) async {
+    final readChanged = await captureChange(tester);
+    await tester.tap(find.byKey(const Key('layout_row2')));
+    await tester.pump();
+    final changed = readChanged();
+    expect(changed?.layout, qrc.LayoutId.row2);
+    expect(changed?.targetFps, 15, reason: 'other fields preserved');
+    expect(changed?.bytesPerTile, qrc.BytesPerTileId.oneK);
+  });
+
+  testWidgets(
+    'tapping the column2 chip fires onChanged with LayoutId.column2',
+    (tester) async {
+      final readChanged = await captureChange(tester);
+      await tester.tap(find.byKey(const Key('layout_column2')));
+      await tester.pump();
+      final changed = readChanged();
+      expect(changed?.layout, qrc.LayoutId.column2);
+      expect(changed?.targetFps, 15, reason: 'other fields preserved');
+      expect(changed?.bytesPerTile, qrc.BytesPerTileId.oneK);
+    },
+  );
+
+  testWidgets('row2 estimate matches single (dual-lane = 1 symbol/tick)', (
+    tester,
+  ) async {
+    Future<String> estimateFor(qrc.LayoutId layout) async {
+      await captureChange(
+        tester,
+        settings: qrc.TransferSettings(
+          bytesPerTile: qrc.BytesPerTileId.oneK,
+          layout: layout,
+          targetFps: 15,
+          highRefresh: false,
+        ),
+      );
+      return tester.widget<Text>(find.textContaining('KB/s')).data ?? '';
+    }
+
+    final single = await estimateFor(qrc.LayoutId.single);
+    final row2 = await estimateFor(qrc.LayoutId.row2);
+    expect(
+      row2,
+      single,
+      reason:
+          'dual-lane shows 1 new symbol/tick, not 2 — the estimate '
+          'must not double the single-tile rate',
+    );
   });
 }

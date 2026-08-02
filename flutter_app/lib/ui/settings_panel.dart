@@ -102,9 +102,9 @@ class _SettingsViewState extends State<SettingsView> {
     return Text(
       label.toUpperCase(),
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            letterSpacing: 1.2,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+        letterSpacing: 1.2,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 
@@ -144,11 +144,13 @@ class _SettingsViewState extends State<SettingsView> {
         for (final id in SettingsPanel._tileOrder)
           ButtonSegment<qrc.BytesPerTileId>(
             value: id,
-            label: Text(id == qrc.BytesPerTileId.oneK
-                ? '1 KB'
-                : id == qrc.BytesPerTileId.twoK
-                    ? '2 KB'
-                    : '2.5 KB'),
+            label: Text(
+              id == qrc.BytesPerTileId.oneK
+                  ? '1 KB'
+                  : id == qrc.BytesPerTileId.twoK
+                  ? '2 KB'
+                  : '2.5 KB',
+            ),
           ),
       ],
       selected: {_settings.bytesPerTile},
@@ -197,13 +199,17 @@ class _SettingsViewState extends State<SettingsView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('HIGH REFRESH RATE',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    letterSpacing: 1.2,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  )),
-              Text('Detected on the sending device',
-                  style: theme.textTheme.bodySmall),
+              Text(
+                'HIGH REFRESH RATE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  letterSpacing: 1.2,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Text(
+                'Detected on the sending device',
+                style: theme.textTheme.bodySmall,
+              ),
             ],
           ),
         ),
@@ -272,9 +278,13 @@ class SettingsPanel extends StatelessWidget {
     qrc.BytesPerTileId.twoK,
     qrc.BytesPerTileId.twoAndHalfK,
   ];
+  // Chips read "rows × columns", grouped by family: single, then the
+  // columns (2×1, 3×1) and rows (1×2, 1×3), then the grids (2×2, 3×3).
   static const List<qrc.LayoutId> _layoutOrder = [
     qrc.LayoutId.single,
+    qrc.LayoutId.column2,
     qrc.LayoutId.column3,
+    qrc.LayoutId.row2,
     qrc.LayoutId.row3,
     qrc.LayoutId.grid4,
     qrc.LayoutId.grid9,
@@ -356,9 +366,9 @@ class SettingsPanel extends StatelessWidget {
     return Text(
       label.toUpperCase(),
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            letterSpacing: 1.2,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+        letterSpacing: 1.2,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 
@@ -398,11 +408,13 @@ class SettingsPanel extends StatelessWidget {
         for (final id in _tileOrder)
           ButtonSegment<qrc.BytesPerTileId>(
             value: id,
-            label: Text(id == qrc.BytesPerTileId.oneK
-                ? '1 KB'
-                : id == qrc.BytesPerTileId.twoK
-                    ? '2 KB'
-                    : '2.5 KB'),
+            label: Text(
+              id == qrc.BytesPerTileId.oneK
+                  ? '1 KB'
+                  : id == qrc.BytesPerTileId.twoK
+                  ? '2 KB'
+                  : '2.5 KB',
+            ),
           ),
       ],
       selected: {settings.bytesPerTile},
@@ -456,11 +468,13 @@ class SettingsPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('HIGH REFRESH RATE',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    letterSpacing: 1.2,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  )),
+              Text(
+                'HIGH REFRESH RATE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  letterSpacing: 1.2,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
               Text(hint, style: theme.textTheme.bodySmall),
             ],
           ),
@@ -471,13 +485,13 @@ class SettingsPanel extends StatelessWidget {
           onChanged: detecting || !supported
               ? null
               : (v) => onChanged(
-                    qrc.TransferSettings(
-                      bytesPerTile: settings.bytesPerTile,
-                      layout: settings.layout,
-                      targetFps: settings.targetFps,
-                      highRefresh: v,
-                    ),
+                  qrc.TransferSettings(
+                    bytesPerTile: settings.bytesPerTile,
+                    layout: settings.layout,
+                    targetFps: settings.targetFps,
+                    highRefresh: v,
                   ),
+                ),
         ),
       ],
     );
@@ -497,11 +511,13 @@ class SettingsPanel extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('EXPECTED SPEED',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.2,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    )),
+                Text(
+                  'EXPECTED SPEED',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    letterSpacing: 1.2,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   '~${(bps / 1024).round()} KB/s',
@@ -527,8 +543,12 @@ class SettingsPanel extends StatelessWidget {
     switch (layout) {
       case qrc.LayoutId.single:
         return '1×1';
+      case qrc.LayoutId.column2:
+        return '2×1';
       case qrc.LayoutId.column3:
         return '3×1';
+      case qrc.LayoutId.row2:
+        return '1×2';
       case qrc.LayoutId.row3:
         return '1×3';
       case qrc.LayoutId.grid4:
@@ -540,8 +560,10 @@ class SettingsPanel extends StatelessWidget {
 
   static Widget? _layoutGlyph(qrc.LayoutId layout) {
     switch (layout) {
+      case qrc.LayoutId.column2:
       case qrc.LayoutId.column3:
         return const Icon(Icons.view_column, size: 14);
+      case qrc.LayoutId.row2:
       case qrc.LayoutId.row3:
         return const Icon(Icons.view_agenda, size: 14);
       default:

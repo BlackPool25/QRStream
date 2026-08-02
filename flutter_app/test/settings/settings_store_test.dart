@@ -66,4 +66,28 @@ void main() {
 
     expect(settings, defaultTransferSettings);
   });
+
+  test('save/load round-trips row2 and column2 layouts', () async {
+    SharedPreferences.setMockInitialValues({});
+    const row2 = qrc.TransferSettings(
+      bytesPerTile: qrc.BytesPerTileId.oneK,
+      layout: qrc.LayoutId.row2,
+      targetFps: 15,
+      highRefresh: false,
+    );
+    await SettingsStore().save(row2);
+    expect(await SettingsStore().load(), row2);
+
+    const column2 = qrc.TransferSettings(
+      bytesPerTile: qrc.BytesPerTileId.oneK,
+      layout: qrc.LayoutId.column2,
+      targetFps: 15,
+      highRefresh: false,
+    );
+    await SettingsStore().save(column2);
+    expect(await SettingsStore().load(), column2);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('qrstream.defaults.layout'), 'column2');
+  });
 }
