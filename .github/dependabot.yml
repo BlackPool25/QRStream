@@ -1,18 +1,18 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
-  - package-ecosystem: "pub"
-    directory: "/flutter_app"
+      interval: 'weekly'
+  - package-ecosystem: 'pub'
+    directory: '/flutter_app'
     schedule:
-      interval: "weekly"
-  - package-ecosystem: "cargo"
-    directory: "/flutter_app/rust"
+      interval: 'weekly'
+  - package-ecosystem: 'cargo'
+    directory: '/flutter_app/rust'
     schedule:
-      interval: "weekly"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+      interval: 'weekly'
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'

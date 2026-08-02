@@ -9,18 +9,18 @@ full model.
 
 ## Supported versions
 
-| Version | Supported |
-|---|---|
-| latest `main` | ✅ |
-| tagged releases | ✅ |
-| older tags | ⚠️ best-effort |
+| Version         | Supported      |
+| --------------- | -------------- |
+| latest `main`   | ✅             |
+| tagged releases | ✅             |
+| older tags      | ⚠️ best-effort |
 
 ## Reporting a vulnerability
 
 Do **not** open a public issue for security problems. Report privately:
 
 - GitHub private vulnerability reporting (preferred): the repository's
-  *Security → Report a vulnerability* flow.
+  _Security → Report a vulnerability_ flow.
 - Email the maintainer listed in the latest release.
 
 Please include the QRStream version, the platform (Android / Linux / PWA), a
