@@ -49,9 +49,9 @@ dependencies:
   camera_android: ^0.10.10
   # Native ML Kit barcode scanning: far more robust QR decoding than pure-Dart
   # zxing2 (rotation/low-light/blur) and it consumes the camera frames directly.
-  # The underlying ML Kit artifact is unbundled (runs inside Google Play
-  # Services); android/app/build.gradle.kts excludes the play-services module
-  # so ML Kit uses its in-APK bundled model (see android_templates).
+  # The artifact is the bundled-model variant (in-APK, in-process, no Play
+  # Services at runtime); the R8 keep rules that make its reflectively loaded
+  # classes survive the release build live in android/app/proguard-rules.pro.
   google_mlkit_barcode_scanning: ^0.15.0
   # Open saved files with the default viewer.
   url_launcher: ^6.3.2
