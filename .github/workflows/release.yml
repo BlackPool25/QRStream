@@ -80,29 +80,42 @@ jobs:
         working-directory: flutter_app/build/linux/x64/release
         run: tar -czf qrstream-linux-x64.tar.gz bundle
 
+      - name: Install RPM build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm patchelf
+
+      - name: Build RPM
+        run: bash packaging/linux/build-rpm.sh
+
       - name: Checksums
         working-directory: flutter_app
         run: |
           sha256sum build/app/outputs/flutter-apk/app-release.apk \
                    build/linux/x64/release/qrstream-linux-x64.tar.gz > SHA256SUMS
+          sha256sum ../packaging/linux/rpmbuild/RPMS/x86_64/*.rpm >> SHA256SUMS
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
           name: QRStream ${{ github.ref_name }}
           generate_release_notes: true
+          draft: true
           files: |
             flutter_app/build/app/outputs/flutter-apk/app-release.apk
             flutter_app/build/linux/x64/release/qrstream-linux-x64.tar.gz
             flutter_app/SHA256SUMS
+            packaging/linux/rpmbuild/RPMS/x86_64/*.rpm
           fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-') }}
 
   # Windows native build. The app is send-only on desktop (the camera plugin is
   # Android-only), mirroring Linux. Flutter requires a Windows host to build
-  # Windows binaries, so this job runs on windows-latest.
+  # Windows binaries (no cross-compilation — a Linux/Docker host cannot produce
+  # a Windows Flutter build), so this job runs on windows-latest.
   build-windows:
     runs-on: windows-latest
+    needs: build-and-release
     steps:
       - uses: actions/checkout@v4
 
@@ -138,15 +151,8 @@ jobs:
           cp ../../../../rust/target/release/qr_transfer_rust.dll .
           powershell -Command "Compress-Archive -Path * -DestinationPath qrstream-windows-x64.zip -Force"
 
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: qrstream-windows
-          path: flutter_app/build/windows/x64/runner/Release/qrstream-windows-x64.zip
-
-      - name: Attach to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: flutter_app/build/windows/x64/runner/Release/qrstream-windows-x64.zip
-          fail_on_unmatched_files: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+      - name: Upload Windows zip to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: flutter_app/build/windows/x64/runner/Release
+        run: gh release upload ${{ github.ref_name }} qrstream-windows-x64.zip --clobber
