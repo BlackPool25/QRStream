@@ -6,16 +6,6 @@ conventional commits on release.
 
 ## [Unreleased]
 
-## [1.0.2] — 2026-08-03
-
-### Fixed
-
-- The sender QR grid now scales continuously: tiles fill their cells
-  edge-to-edge (only the QR-spec quiet zone separates them) and grow linearly
-  with the window instead of stepping in whole-module jumps that wasted space
-  between and around the QRs. The chosen layout stays fixed — a 2×2 grid is
-  always shown as 2×2.
-
 ## [1.0.1] — 2026-08-03
 
 ### Added
@@ -34,9 +24,11 @@ conventional commits on release.
 
 ### Fixed
 
-- The sender QR grid now re-flows to fit the viewport: rotating or resizing
-  the device mid-broadcast re-picks the tile layout so QRs fill the screen
-  instead of sitting small in the center, keeping modules at whole pixels.
+- The sender QR grid now scales continuously and stays centered: tiles fill
+  their cells edge-to-edge (only the QR-spec quiet zone separates them) and
+  grow linearly with the window instead of stepping in whole-module jumps, and
+  the packed block is centered on the stage so a 2×2 stays together in the
+  middle of a tall screen. The chosen layout is kept fixed.
 - After receiving a file, "Scan another" stays reachable on short screens —
   the saved card scrolls instead of clipping the button below the fold.
 - A completed transfer now survives screen rotation and tab switches, and is
