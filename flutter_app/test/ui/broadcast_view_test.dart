@@ -156,6 +156,14 @@ Future<PreparedTransfer> _buildPrepared({
   settings: settings,
 );
 
+/// Sets the test surface to [physical] px at [dpr] and restores it in a
+/// tearDown — controls what the adaptive re-flow picker suggests.
+void _setSurface(WidgetTester tester, Size physical, {double dpr = 3.0}) {
+  tester.view.physicalSize = physical;
+  tester.view.devicePixelRatio = dpr;
+  addTearDown(tester.view.reset);
+}
+
 /// Decodes the `enable` bool from a pigeon ToggleMessage payload: the outer
 /// StandardCodec list holds one ToggleMessage, which itself encodes as the
 /// list `[enable]` (see wakelock_plus_platform_interface messages.g.dart).
@@ -251,6 +259,9 @@ void main() {
       highRefresh: false,
     );
     final prepared = await _buildPrepared(settings: row2Settings);
+    // A short-wide surface keeps row2 as the suggested layout (extreme
+    // landscape below the 480px column/row threshold).
+    _setSurface(tester, const Size(900, 400));
 
     await _pumpView(tester, prepared);
 
@@ -397,6 +408,8 @@ void main() {
       // stage repainted the last-built (empty/stale) tiles — ~1-2 fps on screen
       // even though the controller applied frames at the right cadence.
       final prepared = await _buildPrepared();
+      // A square surface keeps grid4 as the suggested layout (minSide >= 800).
+      _setSurface(tester, const Size(1200, 1200));
       await _pumpView(tester, prepared);
 
       QrGridPainter painter() =>
@@ -451,5 +464,46 @@ void main() {
       reason: 'pipeline used the injected factory',
     );
     expect(factory.lastEncoder?.disposeCount, 1, reason: 'encoder freed');
+  });
+
+  testWidgets('re-flows the live layout to the surface aspect', (tester) async {
+    // Adaptive re-flow regression: the stage must swap the tile grid to the
+    // pure-Dart picker's suggestion whenever the surface changes shape — a
+    // portrait phone's grid4 stays 4 tiles unless the view re-flows it.
+    final prepared = await _buildPrepared(); // default grid4 settings
+
+    QrGridPainter painter() =>
+        tester
+                .widget<CustomPaint>(
+                  find.byWidgetPredicate(
+                    (w) => w is CustomPaint && w.painter is QrGridPainter,
+                  ),
+                )
+                .painter!
+            as QrGridPainter;
+
+    // Portrait phone → the picker suggests the 3-tile column.
+    _setSurface(tester, const Size(1080, 2400));
+    await _pumpView(tester, prepared);
+    await tester.pump(const Duration(milliseconds: 67)); // sets the start
+    await tester.pump(const Duration(milliseconds: 67)); // frame 0
+    expect(painter().layout, LayoutId.column3);
+    expect(painter().tiles, hasLength(3));
+
+    // Landscape → the 3-tile row.
+    _setSurface(tester, const Size(2400, 1080));
+    await tester.pump(); // rebuild at the new constraints → setLayout
+    await tester.pump(const Duration(milliseconds: 67));
+    await tester.pump(const Duration(milliseconds: 67));
+    expect(painter().layout, LayoutId.row3);
+    expect(painter().tiles, hasLength(3));
+
+    // Small square → a single tile.
+    _setSurface(tester, const Size(600, 600));
+    await tester.pump(); // rebuild at the new constraints → setLayout
+    await tester.pump(const Duration(milliseconds: 67));
+    await tester.pump(const Duration(milliseconds: 67));
+    expect(painter().layout, LayoutId.single);
+    expect(painter().tiles, hasLength(1));
   });
 }
