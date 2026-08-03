@@ -194,12 +194,15 @@ sessionId resets all session state (symbols, metadata, k) and the receiver start
 that is how a sender restarting a broadcast is recognized without any protocol message.
 `totalFramesSeen`/`droppedCount` are cumulative scan-health stats and survive resets.
 
-**The px/module cliff.** Sub-pixel scaling anti-aliases QR modules, which measurably
-destroys decode reliability. Therefore: the canvas backing store is sized to device pixels;
-each module is rendered at an integer `ppm` (floored, ≥ 1); the grid needs ~1600 px for
-~6 px/module at V27 (4 tiles × 125+2·quiet-zone modules in two 800 px quadrants). The
-`quietZone` is the QR spec minimum of 4 modules. A screen that cannot deliver ≥ ~2 px/module
-for its profile will not decode reliably — this is a physical cliff, not a code path.
+**The px/module cliff.** Anti-aliased QR modules (blurry edges from sub-pixel
+interpolation) measurably destroy decode reliability. Therefore: the canvas backing
+store is sized to device pixels; modules are rendered with HARD edges — the tile
+fills its cell edge-to-edge (only the QR-spec quiet zone separates tiles) and is
+scaled CONTINUOUSLY to the cell with nearest-neighbour sampling
+(`FilterQuality.none` / non-AA paths), so tiles grow linearly with the window
+instead of stepping in whole-module jumps that waste space between and around the
+QRs. A screen that cannot deliver ≥ ~2 px/module for its profile will not decode
+reliably — this is a physical cliff, not a code path.
 
 **Fps discipline.** The display frame rate must stay **below** the camera's capture rate so
 QR refreshes phase-drift across capture frames instead of aliasing (a frame shown for less

@@ -2,11 +2,15 @@
 /// list as white QR modules on an always-dark espresso background.
 ///
 /// Port of the PWA's `renderTiles` (src/qr/render.ts): the layout splits the
-/// canvas into cols×rows cells, each tile is centered in its cell with a
-/// quiet-zone margin, and modules are drawn at integer pixels per module
-/// (computed exactly like `computeLayoutGeometry`) so they stay crisp in the
-/// receiver's camera — sub-pixel anti-aliasing is a decode killer. Null tiles
-/// (failed encodes) leave their cell on the espresso background.
+/// canvas into cols×rows cells, and each tile is drawn edge-to-edge in its
+/// cell (only the QR-spec quiet zone separates tiles), with modules scaled
+/// CONTINUOUSLY to the cell — the tile side is `min(cellW, cellH)` and the
+/// px/module scale is fractional, so tiles grow linearly with the window
+/// instead of stepping in whole-module jumps that waste space. Renders with
+/// nearest-neighbour sampling ([FilterQuality.none] / non-AA paths) so module
+/// edges stay hard at any scale — anti-aliasing, not fractional size, is the
+/// decode killer. Null tiles (failed encodes) leave their cell on the
+/// espresso background.
 ///
 /// Rendering is BITMAP-BASED: each tile's module matrix is packed into a raw
 /// RGBA image ([matrixToRgba]) and drawn as a [ui.Image] blit (one
@@ -99,7 +103,11 @@ class QrGridPainter extends CustomPainter {
   static const Color espresso = Color(0xFF161312);
 
   static final Paint _espressoPaint = Paint()..color = espresso;
-  static final Paint _whitePaint = Paint()..color = const Color(0xFFFFFFFF);
+  static final Paint _whitePaint = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    // Hard module edges at fractional scales: anti-aliased paths blur modules
+    // and kill decode reliability (the px/module cliff).
+    ..isAntiAlias = false;
   static final Paint _tilePaint = Paint()..filterQuality = FilterQuality.none;
 
   @override
@@ -118,25 +126,26 @@ class QrGridPainter extends CustomPainter {
     );
 
     final grid = layouts[layout]!;
-    final cellW = physW ~/ grid.cols;
-    final cellH = physH ~/ grid.rows;
-    // Integer px/module, floored at 1 — identical to computeLayoutGeometry.
-    final modules = version * 4 + 17 + 2 * quietZone;
-    final ppm = math.max(1, math.min(cellW, cellH) ~/ modules);
+    // Continuous linear scaling: the tile fills the smaller cell dimension
+    // edge-to-edge (the QR spec's quiet zone is the only separator), so the
+    // tiles grow with the window instead of stepping in whole-module jumps
+    // that leave dead space between and around the QRs.
+    final cellW = physW / grid.cols;
+    final cellH = physH / grid.rows;
+    final tileSide = math.min(cellW, cellH);
 
     for (var i = 0; i < tiles.length; i++) {
       final matrix = tiles[i];
       if (matrix == null) continue; // failed tile → bare espresso cell
       final col = i % grid.cols;
       final row = i ~/ grid.cols;
-      final tileSide = (matrix.size + 2 * quietZone) * ppm;
-      final ox = col * cellW + (cellW - tileSide) ~/ 2;
-      final oy = row * cellH + (cellH - tileSide) ~/ 2;
+      final ox = col * cellW + (cellW - tileSide) / 2;
+      final oy = row * cellH + (cellH - tileSide) / 2;
       final cached = images?[esis.isNotEmpty && i < esis.length ? esis[i] : i];
       if (cached != null) {
-        _paintTileBitmap(canvas, matrix, cached, ox, oy, quietZone, ppm);
+        _paintTileBitmap(canvas, matrix, cached, ox, oy, quietZone, tileSide);
       } else {
-        _paintTilePath(canvas, matrix, ox, oy, quietZone, ppm);
+        _paintTilePath(canvas, matrix, ox, oy, quietZone, tileSide);
       }
     }
     canvas.restore();
@@ -144,25 +153,29 @@ class QrGridPainter extends CustomPainter {
 
   /// Bitmap blit: draw the pre-decoded [image] (matrix resolution, white on
   /// transparent) into the quiet-zone-inset cell with nearest-neighbour
-  /// scaling — one draw call per tile.
+  /// scaling — one draw call per tile. The tile spans [tileSide] physical
+  /// pixels (fractional px/module allowed — nearest-neighbour keeps the edges
+  /// hard).
   void _paintTileBitmap(
     Canvas canvas,
     QrMatrix matrix,
     ui.Image image,
-    int ox,
-    int oy,
+    double ox,
+    double oy,
     int quietZone,
-    int ppm,
+    double tileSide,
   ) {
     final m = matrix.size;
+    final totalModules = m + 2 * quietZone;
+    final scale = tileSide / totalModules;
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, m.toDouble(), m.toDouble()),
       Rect.fromLTWH(
-        (ox + quietZone * ppm).toDouble(),
-        (oy + quietZone * ppm).toDouble(),
-        (m * ppm).toDouble(),
-        (m * ppm).toDouble(),
+        ox + quietZone * scale,
+        oy + quietZone * scale,
+        m * scale,
+        m * scale,
       ),
       _tilePaint,
     );
@@ -171,19 +184,22 @@ class QrGridPainter extends CustomPainter {
   /// Run-length-batched paths (fallback until the tile's image is decoded):
   /// consecutive dark modules in each row coalesce into one rect, batched
   /// into ONE Path per tile — a few draw calls instead of one per module.
+  /// Non-AA (see [_whitePaint]) so fractional scales keep hard edges.
   void _paintTilePath(
     Canvas canvas,
     QrMatrix matrix,
-    int ox,
-    int oy,
+    double ox,
+    double oy,
     int quietZone,
-    int ppm,
+    double tileSide,
   ) {
     final m = matrix.size;
+    final totalModules = m + 2 * quietZone;
+    final scale = tileSide / totalModules;
     final path = Path()..fillType = PathFillType.nonZero;
     for (var my = 0; my < m; my++) {
       final base = my * m;
-      final y = (oy + (my + quietZone) * ppm).toDouble();
+      final y = oy + (my + quietZone) * scale;
       var mx = 0;
       while (mx < m) {
         if (matrix.modules[base + mx] == 1) {
@@ -193,10 +209,10 @@ class QrGridPainter extends CustomPainter {
           }
           path.addRect(
             Rect.fromLTWH(
-              (ox + (runStart + quietZone) * ppm).toDouble(),
+              ox + (runStart + quietZone) * scale,
               y,
-              ((mx - runStart + 1) * ppm).toDouble(),
-              ppm.toDouble(),
+              (mx - runStart + 1) * scale,
+              scale,
             ),
           );
         }

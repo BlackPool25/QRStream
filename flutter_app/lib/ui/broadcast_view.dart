@@ -178,33 +178,15 @@ class _BroadcastViewState extends State<BroadcastView>
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              // Adaptive re-flow: fit the tile grid to the live stage size.
-              // suggestLayout is a pure function of the physical canvas, so the
-              // builder only calls setLayout when the suggestion actually
-              // differs from the controller's current layout (no per-frame
-              // churn) — mutating controller state, never widget state, so
-              // there is no setState during build.
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final dpr = MediaQuery.devicePixelRatioOf(context);
-                  final suggested = suggestLayout(
-                    (constraints.maxWidth * dpr).round(),
-                    (constraints.maxHeight * dpr).round(),
-                  );
-                  if (suggested != _controller.layout) {
-                    _controller.setLayout(suggested);
-                  }
-                  return CustomPaint(
-                    painter: QrGridPainter(
-                      tiles: _controller.currentFrame,
-                      esis: _controller.lastEsis,
-                      images: _imageCache.images,
-                      layout: _controller.layout,
-                      version: _controller.version,
-                      devicePixelRatio: dpr,
-                    ),
-                  );
-                },
+              CustomPaint(
+                painter: QrGridPainter(
+                  tiles: _controller.currentFrame,
+                  esis: _controller.lastEsis,
+                  images: _imageCache.images,
+                  layout: _controller.settings.layout,
+                  version: _controller.version,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                ),
               ),
               Positioned(
                 top: 12,
