@@ -64,6 +64,10 @@ jobs:
       # build otherwise ships the default Flutter icon — run the LOGO-based
       # generator so the release APK shows the brand logo (generate.dart makes
       # a generic QR instead).
+      - name: Install ImageMagick for the launcher icon generator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
       - name: Generate launcher icon
         working-directory: flutter_app
         run: dart android_templates/icon/generate_logo.dart
