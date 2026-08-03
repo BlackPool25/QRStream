@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:qr_data_transfer/receiver/receive_controller.dart';
+import 'package:qr_data_transfer/receiver/saver.dart';
 import 'package:qr_data_transfer/shell/app_shell.dart';
 import 'package:qr_data_transfer/ui/receive_view.dart';
 import 'package:qr_data_transfer/ui/send_view.dart';
@@ -16,6 +18,7 @@ void main() {
     WidgetTester tester, {
     required bool linuxOnly,
     required double width,
+    ReceiveSessionController? receiveController,
   }) async {
     // SettingsView loads its defaults from SharedPreferences on mount; give
     // it an empty mock store so the editor renders instead of a spinner.
@@ -24,7 +27,12 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MaterialApp(home: AppShell(linuxOnly: linuxOnly)),
+      MaterialApp(
+        home: AppShell(
+          linuxOnly: linuxOnly,
+          receiveController: receiveController,
+        ),
+      ),
     );
   }
 
@@ -152,5 +160,44 @@ void main() {
 
     expect(find.text('QRStream'), findsOneWidget);
     expect(find.byType(SettingsView), findsOneWidget);
+  });
+
+  testWidgets(
+      'Receive → Send → Receive preserves the completed receive state',
+      (tester) async {
+    // A completed session on the shell-owned controller (as if the transfer
+    // just finished before the first tab switch).
+    final controller = ReceiveSessionController()
+      ..setSaved(
+        SaveResult(
+          name: 'notes.txt',
+          method: SaveMethod.mediaStore,
+          uri: 'content://media/downloads/1',
+        ),
+      );
+    await pumpShell(
+      tester,
+      linuxOnly: false,
+      width: 390,
+      receiveController: controller,
+    );
+
+    await tester.tap(find.byIcon(Icons.camera_alt));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('File saved'), findsOneWidget);
+    expect(find.textContaining('notes.txt'), findsOneWidget);
+
+    // Switch to Send (disposes the ReceiveView State) and back.
+    await tester.tap(find.byIcon(Icons.qr_code_2));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReceiveView), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.camera_alt));
+    await tester.pumpAndSettle();
+
+    // The shell kept the controller alive across the tab switch.
+    expect(find.byType(ReceiveView), findsOneWidget);
+    expect(find.textContaining('File saved'), findsOneWidget);
+    expect(find.textContaining('notes.txt'), findsOneWidget);
   });
 }

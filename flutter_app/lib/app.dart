@@ -14,6 +14,9 @@ class QrTransferApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'QRStream',
+      // Enables state restoration: the receive view's saved-file metadata is
+      // restored across process death.
+      restorationScopeId: 'app',
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),
       themeMode: ThemeMode.system,

@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:qr_data_transfer/receiver/camera_service.dart';
 import 'package:qr_data_transfer/receiver/frame_decoder.dart';
+import 'package:qr_data_transfer/receiver/receive_controller.dart';
 import 'package:qr_data_transfer/receiver/saver.dart';
 import 'package:qr_data_transfer/ui/saved_file_preview.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
@@ -37,8 +38,6 @@ import 'package:qr_transfer_core/receiver/reassembler.dart'
 import 'package:qr_transfer_core/receiver/stats.dart'
     show FeedState, ReceiverStats, ReceiverStatus, StatsSample, updateStats;
 
-enum _Phase { idle, starting, scanning, saving, saved, error }
-
 class ReceiveView extends StatefulWidget {
   const ReceiveView({
     super.key,
@@ -46,6 +45,7 @@ class ReceiveView extends StatefulWidget {
     this.cameraService,
     this.saver,
     this.frameDecoder,
+    this.receiveController,
     this.dylibPath,
     this.onExit,
     this.onImmersiveChanged,
@@ -59,6 +59,12 @@ class ReceiveView extends StatefulWidget {
   /// Frame decoder (default: native ML Kit); tests inject a fake.
   final FrameDecoder? frameDecoder;
 
+  /// App-scoped session state; when null the view owns a private controller.
+  /// The shell passes its shell-lifetime controller so a completed transfer
+  /// survives the tab switches and breakpoint rebuilds that dispose this
+  /// State.
+  final ReceiveSessionController? receiveController;
+
   final String? dylibPath;
   final VoidCallback? onExit;
 
@@ -70,18 +76,96 @@ class ReceiveView extends StatefulWidget {
   State<ReceiveView> createState() => _ReceiveViewState();
 }
 
-class _ReceiveViewState extends State<ReceiveView> {
+class _ReceiveViewState extends State<ReceiveView> with RestorationMixin {
   bool get _linux => widget.linuxOnly ?? !Platform.isAndroid;
   late final CameraService _camera =
       widget.cameraService ?? PluginCameraService();
   late final Saver _saver = widget.saver ?? Saver();
 
-  _Phase _phase = _Phase.idle;
+  /// Session state lives in the controller so it survives this State being
+  /// disposed (tab switch, 600dp breakpoint rebuild) and can be re-seeded
+  /// after process death; the view keeps only the transient decode machinery
+  /// below (camera, stats, FrameBuffer, reassembler).
+  late final ReceiveSessionController _receiveController;
+  bool _ownsController = false;
+  bool _restoreApplied = false;
+
+  // Process-death restoration: phase + saved-file metadata (SaveResult name,
+  // method, uri) suffice to bring the saved card back — the received bytes
+  // are not restorable and never re-enter the controller after a restart.
+  final RestorableStringN _restorablePhase = RestorableStringN(null);
+  final RestorableStringN _restorableName = RestorableStringN(null);
+  final RestorableStringN _restorableMethod = RestorableStringN(null);
+  final RestorableStringN _restorableUri = RestorableStringN(null);
+
+  @override
+  String get restorationId => 'receive';
+
+  @override
+  void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
+    registerForRestoration(_restorablePhase, 'phase');
+    registerForRestoration(_restorableName, 'saved_name');
+    registerForRestoration(_restorableMethod, 'saved_method');
+    registerForRestoration(_restorableUri, 'saved_uri');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _receiveController = widget.receiveController ?? ReceiveSessionController();
+    _ownsController = widget.receiveController == null;
+    // A recreated State keeps the completed session; any leftover mid-scan
+    // phase is meaningless without the camera, so only saved survives.
+    if (_receiveController.phase != ReceivePhase.saved) {
+      _receiveController.reset();
+    }
+    _receiveController.addListener(_onReceiveChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // restoreState has now restored the restorable properties; push the
+    // restored saved-file metadata into the controller exactly once.
+    if (!_restoreApplied) {
+      _restoreApplied = true;
+      _applyRestoredState();
+    }
+  }
+
+  /// After process death, rehydrate the completed session from the restored
+  /// metadata so the saved card reappears. A live completed session (the
+  /// controller already saved, e.g. a tab switch) wins — it still carries the
+  /// full result for the preview, which restoration data cannot.
+  void _applyRestoredState() {
+    if (_receiveController.phase == ReceivePhase.saved) return;
+    final phase = _restorablePhase.value;
+    final name = _restorableName.value;
+    if (phase != ReceivePhase.saved.name || name == null) return;
+    final method = SaveMethod.values.asNameMap()[_restorableMethod.value] ??
+        SaveMethod.mediaStore;
+    _receiveController.setSaved(
+      SaveResult(name: name, method: method, uri: _restorableUri.value),
+    );
+  }
+
+  /// Controller -> view: reflect every session transition in the tree and keep
+  /// the restorable phase + saved metadata in sync for process-death restore.
+  void _onReceiveChanged() {
+    _restorablePhase.value = _receiveController.phase.name;
+    _restorableName.value = _receiveController.saved?.name;
+    _restorableMethod.value = _receiveController.saved?.method.name;
+    _restorableUri.value = _receiveController.saved?.uri;
+    setState(() {});
+  }
+
+  ReceivePhase get _phase => _receiveController.phase;
+  ReassemblyResult? get _result => _receiveController.result;
+  SaveResult? get _saved => _receiveController.saved;
+  bool get _verified => _receiveController.verified;
+  String? get _error => _receiveController.error;
+
   ReceiverStats _stats = ReceiverStats.empty();
-  ReassemblyResult? _result;
-  SaveResult? _saved;
-  String? _error;
-  bool _verified = false;
 
   final FrameBuffer _buffer = FrameBuffer();
   FeedState _feedState = const FeedState(started: false, fedEsi: <int>{});
@@ -108,7 +192,7 @@ class _ReceiveViewState extends State<ReceiveView> {
               'send-only.',
         )
       : switch (_phase) {
-          _Phase.idle => _card(
+          ReceivePhase.idle => _card(
             context,
             Icons.qr_code_scanner,
             'Scan a broadcast',
@@ -126,15 +210,15 @@ class _ReceiveViewState extends State<ReceiveView> {
                     child: const Text('Back'),
                   ),
           ),
-          _Phase.starting => const Center(child: CircularProgressIndicator()),
-          _Phase.saving => _card(
+          ReceivePhase.starting => const Center(child: CircularProgressIndicator()),
+          ReceivePhase.saving => _card(
             context,
             Icons.download,
             'Saving…',
             'Saving ${_result?.filename ?? 'file'}…',
           ),
-          _Phase.saved => _savedCard(context),
-          _Phase.error => _card(
+          ReceivePhase.saved => _savedCard(context),
+          ReceivePhase.error => _card(
             context,
             Icons.error_outline,
             'Could not scan',
@@ -144,7 +228,7 @@ class _ReceiveViewState extends State<ReceiveView> {
               child: const Text('Try again'),
             ),
           ),
-          _Phase.scanning => _scanning(context),
+          ReceivePhase.scanning => _scanning(context),
         };
 
   // ---------------------------------------------------------------- flow
@@ -154,10 +238,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     _decoder = widget.frameDecoder ?? MlKitFrameDecoder();
     // Scanning precedes camera start so frames arriving during start() are
     // processed (mirrors the PWA's status order).
-    setState(() {
-      _phase = _Phase.scanning;
-      _error = null;
-    });
+    _receiveController.setScanning();
     widget.onImmersiveChanged?.call(true);
     try {
       await _camera.start(_frame);
@@ -171,10 +252,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     await _camera.stop();
     _releaseDecoder();
     _reset();
-    setState(() {
-      _phase = _Phase.idle;
-      _stats = ReceiverStats.empty();
-    });
+    setState(() => _stats = ReceiverStats.empty());
     widget.onImmersiveChanged?.call(false);
   }
 
@@ -192,9 +270,7 @@ class _ReceiveViewState extends State<ReceiveView> {
     _reassembler = null;
     _sid = null;
     _mtu = null;
-    _verified = false;
-    _result = null;
-    _saved = null;
+    _receiveController.reset();
     _clock = Stopwatch()..start();
     _lastEmit = 0;
     _window = 0;
@@ -216,12 +292,12 @@ class _ReceiveViewState extends State<ReceiveView> {
             // feedQueue, so feed order is preserved and start()/feedMore() never
             // race.
             _queue = _queue.then((_) => _decoded(rs)).catchError((Object e) {
-              if (mounted && _phase == _Phase.scanning) _fail('$e');
+              if (mounted && _phase == ReceivePhase.scanning) _fail('$e');
             });
           })
           .catchError((Object e) {
             _decoding = false;
-            if (mounted && _phase == _Phase.scanning) {
+            if (mounted && _phase == ReceivePhase.scanning) {
               _fail('Decode failed: $e');
             }
           }),
@@ -242,7 +318,7 @@ class _ReceiveViewState extends State<ReceiveView> {
   }
 
   Future<void> _decoded(List<DecodeResult> rs) async {
-    if (!mounted || _phase != _Phase.scanning || _result != null) return;
+    if (!mounted || _phase != ReceivePhase.scanning || _result != null) return;
     if (rs.isNotEmpty) _window++;
     for (final r in rs) {
       final bytes = r.bytes;
@@ -254,7 +330,6 @@ class _ReceiveViewState extends State<ReceiveView> {
         _sid = null;
         _mtu = null;
         _feedState = const FeedState(started: false, fedEsi: <int>{});
-        _verified = false;
       }
       await _route(feed);
       final ra = _reassembler;
@@ -312,16 +387,13 @@ class _ReceiveViewState extends State<ReceiveView> {
       return; // not complete / hash mismatch — keep scanning
     }
     if (!mounted) return;
-    setState(() {
-      _verified = true;
-      _result = res;
-      _stats = _statsNow();
-    });
+    _receiveController.setVerified(res);
+    setState(() => _stats = _statsNow());
     await _camera.stop();
   }
 
   void _emit() {
-    if (!mounted || _phase != _Phase.scanning) return;
+    if (!mounted || _phase != ReceivePhase.scanning) return;
     setState(() => _stats = _statsNow());
   }
 
@@ -368,7 +440,7 @@ class _ReceiveViewState extends State<ReceiveView> {
   Future<void> _save() async {
     final r = _result;
     if (r == null) return;
-    setState(() => _phase = _Phase.saving);
+    _receiveController.setSaving();
     widget.onImmersiveChanged?.call(false);
     try {
       final saved = await _saver.saveFile(
@@ -377,16 +449,12 @@ class _ReceiveViewState extends State<ReceiveView> {
         mime: r.mime,
       );
       if (!mounted) return;
-      setState(() {
-        _saved = saved;
-        _phase = _Phase.saved;
-      });
+      _receiveController.setSaved(saved);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = '$e';
-        _phase = _Phase.scanning;
-      });
+      // Back to the save card (scanning) with the failure banner so the user
+      // can retry saving without rescanning.
+      _receiveController.setScanning(error: '$e');
       widget.onImmersiveChanged?.call(true);
     }
   }
@@ -406,10 +474,7 @@ class _ReceiveViewState extends State<ReceiveView> {
 
   void _fail(String m) {
     if (!mounted) return;
-    setState(() {
-      _error = m;
-      _phase = _Phase.error;
-    });
+    _receiveController.setError(m);
     widget.onImmersiveChanged?.call(false);
     _camera.stop();
   }
@@ -417,6 +482,8 @@ class _ReceiveViewState extends State<ReceiveView> {
   @override
   void dispose() {
     widget.onImmersiveChanged?.call(false);
+    _receiveController.removeListener(_onReceiveChanged);
+    if (_ownsController) _receiveController.dispose();
     _releaseDecoder();
     _camera.stop();
     super.dispose();

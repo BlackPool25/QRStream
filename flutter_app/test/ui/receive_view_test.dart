@@ -22,6 +22,7 @@ import 'package:camera/camera.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:qr_data_transfer/receiver/camera_service.dart';
 import 'package:qr_data_transfer/receiver/frame_decoder.dart';
+import 'package:qr_data_transfer/receiver/receive_controller.dart';
 import 'package:qr_data_transfer/receiver/saver.dart';
 import 'package:qr_data_transfer/ui/receive_view.dart';
 import 'package:qr_transfer_core/codec/raptorq_bridge.dart';
@@ -166,17 +167,75 @@ class FakeSaver {
 }
 
 /// Mounts ReceiveView with the real pipeline and injected fakes.
+/// [wide] wraps the view in a rail layout instead of the plain body so the
+/// ReceiveView State is recreated between pumps — the 600dp breakpoint swap.
 Widget _harness({
   required CameraService camera,
   required Saver saver,
   required FrameDecoder decoder,
   bool linuxOnly = false,
+  bool wide = false,
+  ReceiveSessionController? receiveController,
+  ValueChanged<bool>? onImmersiveChanged,
+}) {
+  final view = ReceiveView(
+    linuxOnly: linuxOnly,
+    cameraService: camera,
+    saver: saver,
+    frameDecoder: decoder,
+    receiveController: receiveController,
+    onImmersiveChanged: onImmersiveChanged,
+  );
+  if (wide) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: 1,
+              onDestinationSelected: (_) {},
+              destinations: const [
+                NavigationRailDestination(
+                  icon: Icon(Icons.qr_code_2),
+                  label: Text('Send'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.camera_alt),
+                  label: Text('Receive'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.settings),
+                  label: Text('Settings'),
+                ),
+              ],
+            ),
+            Expanded(child: view),
+          ],
+        ),
+      ),
+    );
+  }
+  return MaterialApp(
+    home: Scaffold(
+      body: view,
+    ),
+  );
+}
+
+/// Harness with state restoration enabled (MaterialApp restorationScopeId) for
+/// the process-death test. No controller is injected — each "process" gets its
+/// own private one, exactly like a fresh app launch.
+Widget _restorableHarness({
+  required CameraService camera,
+  required Saver saver,
+  required FrameDecoder decoder,
   ValueChanged<bool>? onImmersiveChanged,
 }) {
   return MaterialApp(
+    restorationScopeId: 'app',
     home: Scaffold(
       body: ReceiveView(
-        linuxOnly: linuxOnly,
+        linuxOnly: false,
         cameraService: camera,
         saver: saver,
         frameDecoder: decoder,
@@ -395,6 +454,163 @@ void main() {
     await tester.pumpAndSettle();
     expect(states.last, isFalse);
     expect(find.text('Could not scan'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a completed receive survives a rebuild bound to the same controller '
+      '(tab switch)', (tester) async {
+    final fx = Fixture('random-64k');
+    final expectedName = 'random-64k.bin';
+    final results = <DecodeResult>[
+      DecodeResult(bytes: fx.metaFrame),
+      for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+    ];
+    final camera = FakeCameraService(1);
+    final decoder = FakeFrameDecoder(results);
+    final fake = FakeSaver();
+    final controller = ReceiveSessionController();
+
+    // Given: a completed transfer on the shared controller.
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        decoder: decoder,
+        receiveController: controller,
+      ),
+    );
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => find.text('Save file').evaluate().isNotEmpty,
+      timeout: const Duration(seconds: 90),
+    );
+    await tester.tap(find.text('Save file'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('File saved'), findsOneWidget);
+
+    // When: the tree is rebuilt (switch to another tab and back) the old
+    // State is disposed and a fresh one mounts against the same controller.
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SizedBox())),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        decoder: decoder,
+        receiveController: controller,
+      ),
+    );
+    await tester.pump();
+
+    // Then: the saved card + name render immediately — no rescanning — and
+    // the restored file still opens.
+    expect(find.textContaining('File saved'), findsOneWidget);
+    expect(find.textContaining(expectedName), findsWidgets);
+    expect(find.text('Start scanning'), findsNothing);
+    await tester.tap(find.text('Open file'));
+    await tester.pump();
+    expect(fake.openCount, 1);
+  });
+
+  testWidgets(
+      'a completed receive survives the 600dp breakpoint (rotation) rebuild',
+      (tester) async {
+    final fx = Fixture('random-1k');
+    final expectedName = 'random-1k.bin';
+    final results = <DecodeResult>[
+      DecodeResult(bytes: fx.metaFrame),
+      for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+    ];
+    final camera = FakeCameraService(1);
+    final decoder = FakeFrameDecoder(results);
+    final fake = FakeSaver();
+    final controller = ReceiveSessionController();
+
+    // Complete the flow on a phone-style scaffold.
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        decoder: decoder,
+        receiveController: controller,
+      ),
+    );
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => find.text('Save file').evaluate().isNotEmpty,
+      timeout: const Duration(seconds: 90),
+    );
+    await tester.tap(find.text('Save file'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('File saved'), findsOneWidget);
+
+    // Cross the breakpoint: a structurally different (wide/rail) scaffold
+    // around the same controller — the State is recreated.
+    await tester.pumpWidget(
+      _harness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        decoder: decoder,
+        receiveController: controller,
+        wide: true,
+      ),
+    );
+    await tester.pump();
+
+    // Then: the completed state survived the rotation-driven rebuild.
+    expect(find.textContaining('File saved'), findsOneWidget);
+    expect(find.textContaining(expectedName), findsWidgets);
+    expect(find.text('Start scanning'), findsNothing);
+  });
+
+  testWidgets('process death restores the saved card from restoration data', (
+    tester,
+  ) async {
+    final fx = Fixture('random-1k');
+    final expectedName = 'random-1k.bin';
+    final results = <DecodeResult>[
+      DecodeResult(bytes: fx.metaFrame),
+      for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+    ];
+    final camera = FakeCameraService(1);
+    final decoder = FakeFrameDecoder(results);
+    final fake = FakeSaver();
+
+    // First "process": complete the transfer with restoration enabled.
+    await tester.pumpWidget(
+      _restorableHarness(
+        camera: camera,
+        saver: Saver(saveFn: fake.save, openFn: fake.open),
+        decoder: decoder,
+      ),
+    );
+    await tester.tap(find.text('Start scanning'));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => find.text('Save file').evaluate().isNotEmpty,
+      timeout: const Duration(seconds: 90),
+    );
+    await tester.tap(find.text('Save file'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('File saved'), findsOneWidget);
+
+    // Kill the process and restore from the persisted state.
+    await tester.restartAndRestore();
+
+    // Then: the saved card + name reappear without any rescan.
+    expect(find.textContaining('File saved'), findsOneWidget);
+    expect(find.textContaining(expectedName), findsWidgets);
+    expect(find.text('Start scanning'), findsNothing);
   });
 }
 
