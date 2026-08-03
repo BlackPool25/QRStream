@@ -73,8 +73,41 @@ jobs:
         run: dart android_templates/icon/generate_logo.dart
 
       - name: Rust release codec (Linux dylib)
-        working-directory: flutter_app/rust
+        working-directory: flutter_app
         run: cargo build --release
+
+      # The release APK must be signed with the STABLE release keystore so users
+      # can update over a previous install (a per-build debug key makes every
+      # APK a different app and Android refuses the update). The keystore +
+      # credentials are stored as GitHub Actions secrets, never committed:
+      # decode the base64 keystore into android/ and write key.properties for
+      # the gradle template's signingConfigs.release. Fail loudly if the
+      # secrets are absent — publishing a debug-signed APK would silently
+      # reintroduce the update-conflict bug.
+      - name: Stage Android release signing key
+        working-directory: flutter_app
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || \
+             [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::Android release signing secrets missing — set ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD in repo Settings > Secrets."
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          keytool -list -keystore android/app/upload-keystore.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1 \
+            && echo "keystore staged: alias '$ANDROID_KEY_ALIAS' verified" \
+            || { echo "::error::staged keystore failed keytool verification"; exit 1; }
 
       - name: Build Android codec (.so)
         working-directory: flutter_app
