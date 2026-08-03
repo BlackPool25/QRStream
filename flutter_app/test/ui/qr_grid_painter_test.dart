@@ -23,22 +23,32 @@ void main() {
     return QrMatrix(modules: modules, size: size);
   }
 
+  /// Rasterizes [painter] at [logicalW]×[logicalH] (for tall-canvas layout
+  /// tests); the raster resolution is the logical size × [dpr].
+  Future<ByteData> rasterizeWH(
+    QrGridPainter painter,
+    double logicalW,
+    double logicalH,
+    double dpr,
+  ) async {
+    final physW = (logicalW * dpr).round();
+    final physH = (logicalH * dpr).round();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    painter.paint(canvas, Size(logicalW, logicalH));
+    final img = await recorder.endRecording().toImage(physW, physH);
+    final bytes = await img.toByteData();
+    img.dispose();
+    return bytes!;
+  }
+
   /// Rasterizes [painter] at [logical]×[logical]; the raster resolution is
   /// [logical]×[dpr] (pass 1.0 for a 1:1 logical raster).
   Future<ByteData> rasterize(
     QrGridPainter painter,
     double logical,
     double dpr,
-  ) async {
-    final phys = (logical * dpr).round();
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    painter.paint(canvas, Size(logical, logical));
-    final img = await recorder.endRecording().toImage(phys, phys);
-    final bytes = await img.toByteData();
-    img.dispose();
-    return bytes!;
-  }
+  ) => rasterizeWH(painter, logical, logical, dpr);
 
   Color pixel(ByteData data, int width, int x, int y) {
     final i = (y * width + x) * 4;
@@ -63,10 +73,15 @@ void main() {
     final cellW = canvasPx / grid.cols;
     final cellH = canvasPx / grid.rows;
     final tileSide = cellW < cellH ? cellW : cellH;
+    // The tiles are packed into one flush block, centered in the canvas.
+    final blockW = grid.cols * tileSide;
+    final blockH = grid.rows * tileSide;
+    final ox0 = (canvasPx - blockW) / 2;
+    final oy0 = (canvasPx - blockH) / 2;
     final totalModules = 5 + 2 * minQuietZone; // 5×5 matrix + quiet zone
     final scale = tileSide / totalModules;
-    final ox = col * cellW + (cellW - tileSide) / 2;
-    final oy = row * cellH + (cellH - tileSide) / 2;
+    final ox = ox0 + col * tileSide;
+    final oy = oy0 + row * tileSide;
     return (x: ox + (2 + minQuietZone) * scale, y: oy + (2 + minQuietZone) * scale);
   }
 
@@ -137,6 +152,55 @@ void main() {
     expect(large.x, lessThan(small.x * 2 + 2));
     expect(large.y, greaterThan(small.y * 2 - 2));
     expect(large.y, lessThan(small.y * 2 + 2));
+  });
+
+  testWidgets('2×2 block concentrates in the center of a tall canvas', (
+    tester,
+  ) async {
+    // Portrait canvas 160×320 with grid4: per-cell centering spreads the two
+    // rows apart (each tile centered in its own tall cell → a dead band
+    // between the rows); block packing keeps the 2×2 together in the middle.
+    const w = 160;
+    const h = 320;
+    final data = (await tester.runAsync(
+      () => rasterizeWH(
+        QrGridPainter(
+          tiles: [
+            singleModuleMatrix(),
+            singleModuleMatrix(),
+            singleModuleMatrix(),
+            singleModuleMatrix(),
+          ],
+          layout: qrc.LayoutId.grid4,
+          version: 1,
+        ),
+        w.toDouble(),
+        h.toDouble(),
+        1.0,
+      ),
+    ))!;
+
+    // cellW = 160/2 = 80, cellH = 320/2 = 160 → tileSide = 80. The 2×2 block
+    // is 160×160, centered → blockOy = (320-160)/2 = 80. Row 0 module at
+    // 80 + (2+4)*scale, row 1 module one tileSide below (row 0 + 80).
+    final totalModules = 5 + 2 * minQuietZone;
+    final scale = 80 / totalModules;
+    final blockOy = (h - 2 * 80) / 2; // 80
+    final row0y = (blockOy + (2 + minQuietZone) * scale).round();
+    final row1y = (blockOy + 80 + (2 + minQuietZone) * scale).round();
+
+    // Both rows painted…
+    expect(pixel(data, w, 80 ~/ 2, row0y), const Color(0xFFFFFFFF));
+    expect(pixel(data, w, 80 ~/ 2, row1y), const Color(0xFFFFFFFF));
+    // …and concentrated: row 1 sits immediately below row 0 (gap ≈ 80, the
+    // tile side), not spread toward the canvas bottom (gap ≈ 160 under the
+    // old per-cell centering).
+    expect(row1y - row0y, 80);
+    // Both rows stay inside the central block band (80..240 of a 320 canvas).
+    expect(row0y, greaterThan(100));
+    expect(row0y, lessThan(130));
+    expect(row1y, greaterThan(180));
+    expect(row1y, lessThan(215));
   });
 
   testWidgets('null tiles leave their cell on the espresso background', (
