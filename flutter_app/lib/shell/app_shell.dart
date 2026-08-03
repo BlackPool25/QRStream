@@ -17,6 +17,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../receiver/receive_controller.dart';
 import '../ui/receive_view.dart';
 import '../ui/send_view.dart';
 import '../ui/settings_panel.dart';
@@ -42,9 +43,13 @@ enum _Destination {
 /// Adaptive navigation shell. [linuxOnly] defaults to the host platform and
 /// is injectable so tests (and Linux builds) can pin the send-only mode.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.linuxOnly});
+  const AppShell({super.key, this.linuxOnly, this.receiveController});
 
   final bool? linuxOnly;
+
+  /// Injectable receive-session controller (tests pre-seed it with a completed
+  /// state); when null the shell owns a fresh one for its whole lifetime.
+  final ReceiveSessionController? receiveController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -52,6 +57,11 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late final bool _linuxOnly = widget.linuxOnly ?? !Platform.isAndroid;
+
+  /// Outlives every [ReceiveView] State, so a completed receive session
+  /// survives tab switches and the 600dp breakpoint body swap.
+  late final ReceiveSessionController _receiveController =
+      widget.receiveController ?? ReceiveSessionController();
 
   int _index = 0;
 
@@ -121,10 +131,22 @@ class _AppShellState extends State<AppShell> {
       case _Destination.receive:
         return _linuxOnly
             ? const _LinuxReceiveCard()
-            : ReceiveView(onImmersiveChanged: _setImmersive);
+            : ReceiveView(
+                // linuxOnly mirrors the shell's override so a test-pinned
+                // non-Linux shell renders the real receive flow on any host.
+                linuxOnly: widget.linuxOnly,
+                receiveController: _receiveController,
+                onImmersiveChanged: _setImmersive,
+              );
       case _Destination.settings:
         return const SettingsView();
     }
+  }
+
+  @override
+  void dispose() {
+    _receiveController.dispose();
+    super.dispose();
   }
 }
 
