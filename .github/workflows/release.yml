@@ -73,7 +73,7 @@ jobs:
         run: dart android_templates/icon/generate_logo.dart
 
       - name: Rust release codec (Linux dylib)
-        working-directory: flutter_app
+        working-directory: flutter_app/rust
         run: cargo build --release
 
       # The release APK must be signed with the STABLE release keystore so users
