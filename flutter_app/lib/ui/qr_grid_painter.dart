@@ -2,14 +2,17 @@
 /// list as white QR modules on an always-dark espresso background.
 ///
 /// Port of the PWA's `renderTiles` (src/qr/render.ts): the layout splits the
-/// canvas into cols×rows cells, and each tile is drawn edge-to-edge in its
-/// cell (only the QR-spec quiet zone separates tiles), with modules scaled
-/// CONTINUOUSLY to the cell — the tile side is `min(cellW, cellH)` and the
-/// px/module scale is fractional, so tiles grow linearly with the window
-/// instead of stepping in whole-module jumps that waste space. Renders with
-/// nearest-neighbour sampling ([FilterQuality.none] / non-AA paths) so module
-/// edges stay hard at any scale — anti-aliasing, not fractional size, is the
-/// decode killer. Null tiles (failed encodes) leave their cell on the
+/// canvas into cols×rows cells, and each tile is drawn edge-to-edge (only the
+/// QR-spec quiet zone separates tiles), with modules scaled CONTINUOUSLY to the
+/// cell — the tile side is `min(cellW, cellH)` and the px/module scale is
+/// fractional, so tiles grow linearly with the window instead of stepping in
+/// whole-module jumps that waste space. The tiles are packed into ONE flush
+/// block that is CENTERED in the canvas, so on a tall screen a 2×2 stays
+/// together in the middle (per-cell centering would leave a dead band between
+/// the rows) and every QR is close enough to hold the phone up to. Renders
+/// with nearest-neighbour sampling ([FilterQuality.none] / non-AA paths) so
+/// module edges stay hard at any scale — anti-aliasing, not fractional size,
+/// is the decode killer. Null tiles (failed encodes) leave their cell on the
 /// espresso background.
 ///
 /// Rendering is BITMAP-BASED: each tile's module matrix is packed into a raw
@@ -127,20 +130,31 @@ class QrGridPainter extends CustomPainter {
 
     final grid = layouts[layout]!;
     // Continuous linear scaling: the tile fills the smaller cell dimension
-    // edge-to-edge (the QR spec's quiet zone is the only separator), so the
-    // tiles grow with the window instead of stepping in whole-module jumps
-    // that leave dead space between and around the QRs.
+    // edge-to-edge, so the tiles grow with the window instead of stepping in
+    // whole-module jumps that leave dead space around the QRs.
     final cellW = physW / grid.cols;
     final cellH = physH / grid.rows;
     final tileSide = math.min(cellW, cellH);
+
+    // Pack the tiles into ONE flush block (cols×rows of tileSide squares) and
+    // center that block in the canvas. Per-cell centering would spread the
+    // rows apart on tall screens (each tile centered in its own tall cell →
+    // a big dead band between the rows in a 2×2), which defeats holding the
+    // phone close to a central QR. The block keeps every QR adjacent (only
+    // the QR-spec quiet zone separates them) with all leftover space as outer
+    // margin.
+    final blockW = grid.cols * tileSide;
+    final blockH = grid.rows * tileSide;
+    final blockOx = (physW - blockW) / 2;
+    final blockOy = (physH - blockH) / 2;
 
     for (var i = 0; i < tiles.length; i++) {
       final matrix = tiles[i];
       if (matrix == null) continue; // failed tile → bare espresso cell
       final col = i % grid.cols;
       final row = i ~/ grid.cols;
-      final ox = col * cellW + (cellW - tileSide) / 2;
-      final oy = row * cellH + (cellH - tileSide) / 2;
+      final ox = blockOx + col * tileSide;
+      final oy = blockOy + row * tileSide;
       final cached = images?[esis.isNotEmpty && i < esis.length ? esis[i] : i];
       if (cached != null) {
         _paintTileBitmap(canvas, matrix, cached, ox, oy, quietZone, tileSide);
