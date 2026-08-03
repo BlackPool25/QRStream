@@ -18,7 +18,6 @@
 library;
 
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -89,8 +88,7 @@ class BroadcastController {
          canvasHeight,
        ).effectiveFps {
     _version = bytesPerTile[settings.bytesPerTile]!.version;
-    _layout = settings.layout;
-    _grid = layouts[_layout]!;
+    _grid = layouts[settings.layout]!;
     _tilesPerFrame = _grid.cols * _grid.rows;
     // Encoding lives in a background isolate by default; tests inject a
     // synchronous backend.
@@ -107,9 +105,8 @@ class BroadcastController {
   late final EncodeBackend _encode;
   late final Ticker _ticker;
   late final int _version;
-  late LayoutId _layout;
-  late ({int cols, int rows}) _grid;
-  late int _tilesPerFrame;
+  late final ({int cols, int rows}) _grid;
+  late final int _tilesPerFrame;
 
   /// Current broadcast cadence (fps): starts at the resolved effective fps
   /// and only steps down when a tick overruns its frame budget.
@@ -160,40 +157,8 @@ class BroadcastController {
   /// QR version used for every tile (from the settings' bytes-per-tile).
   int get version => _version;
 
-  /// Tiles per frame for the current layout (cols × rows); follows
-  /// [setLayout] re-flows.
+  /// Tiles per frame for the settings' layout (cols × rows).
   int get tilesPerFrame => _tilesPerFrame;
-
-  /// The LIVE tile arrangement (cols × rows). Starts at
-  /// [TransferSettings.layout] and follows adaptive re-flow via [setLayout].
-  LayoutId get layout => _layout;
-
-  /// Re-flows the live grid to [newLayout] mid-broadcast: swaps the grid
-  /// geometry, re-clamps the fps ceiling and re-seeds the encode lookahead so
-  /// it re-requests at the new tile count. No-op when the layout is unchanged.
-  ///
-  /// The transfer settings stay untouched — the layout is a live display
-  /// concern, not transfer metadata, and the receiver learns the real file
-  /// metadata from META frames, which are layout-independent. The current frame
-  /// is kept on screen (the previous frame may stay up one tick while the
-  /// lookahead refills at the new shape).
-  void setLayout(LayoutId newLayout) {
-    if (newLayout == _layout) return;
-    _layout = newLayout;
-    _grid = layouts[newLayout]!;
-    _tilesPerFrame = _grid.cols * _grid.rows;
-    // Recompute the cadence ceiling for the new layout (grid9 caps at 24, the
-    // rest at 30 unless the display is 60Hz) — the same min() resolvePacing
-    // applies, inlined here because the settings are immutable.
-    currentFps = math.min(
-      _settings.targetFps,
-      math.min(layoutMaxFps[newLayout]!, _settings.highRefresh ? 30 : 24),
-    );
-    // The buffered frames were sized for the old grid; drop them and
-    // re-request from the next unrendered frame at the new tile count.
-    _ready.clear();
-    _nextRequest = _renderedTicks;
-  }
 
   /// Begins the broadcast. Idempotent. Holds the screen-awake wake lock for
   /// the whole broadcast (the sender keeps its screen on while broadcasting).
@@ -268,7 +233,7 @@ class BroadcastController {
     final showMeta = frameIndex % metadataRebroadcastEvery == 0;
     final reqEsis = <int>[];
     final reqBytes = <Uint8List?>[];
-    if (isDualLaneLayout(_layout)) {
+    if (isDualLaneLayout(_settings.layout)) {
       final laneEsis = nextEsiDualLane(
         _pool.k,
         _pool.repairAvailable,
@@ -344,7 +309,7 @@ class BroadcastController {
   /// `_frameWithEsis` returns the data-only round-robin schedule on meta ticks.
   DrainedFrame _frameWithEsis(int frameIndex, List<QrMatrix?> tiles) {
     final showMeta = frameIndex % metadataRebroadcastEvery == 0;
-    if (isDualLaneLayout(_layout)) {
+    if (isDualLaneLayout(_settings.layout)) {
       return (
         frameIndex: frameIndex,
         tiles: tiles,
@@ -387,7 +352,7 @@ class BroadcastController {
         avgTickMs: _renderedTicks > 0
             ? (nowMs / _renderedTicks * 10).round() / 10
             : 0,
-        layout: _layout,
+        layout: _settings.layout,
         k: _pool.k,
       ),
     );

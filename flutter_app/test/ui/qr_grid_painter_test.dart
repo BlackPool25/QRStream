@@ -1,6 +1,8 @@
 // QrGridPainter contract: the run-batched, physical-pixel painter must place
-// every dark module at crisp integer pixels (camera-decodable) on the espresso
-// stage, and the physical layout must size modules to the device pixel ratio.
+// every dark module with HARD edges (nearest-neighbour blit / non-AA paths) on
+// the espresso stage, and scale tiles CONTINUOUSLY so they grow linearly with
+// the canvas — filling each cell edge-to-edge (only the QR-spec quiet zone
+// separates tiles) instead of stepping in whole-module jumps that waste space.
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -48,10 +50,33 @@ void main() {
     );
   }
 
-  testWidgets('paints the single dark module at the exact integer pixel', (
+  /// Continuous tile geometry (mirrors the painter): the tile fills the
+  /// smaller cell dimension edge-to-edge, so the px/module scale is fractional.
+  /// Returns the pixel coordinates of the single dark module (2,2).
+  ({double x, double y}) moduleCenter(
+    int canvasPx,
+    qrc.LayoutId layout,
+    int col,
+    int row,
+  ) {
+    final grid = qrc.layouts[layout]!;
+    final cellW = canvasPx / grid.cols;
+    final cellH = canvasPx / grid.rows;
+    final tileSide = cellW < cellH ? cellW : cellH;
+    final totalModules = 5 + 2 * minQuietZone; // 5×5 matrix + quiet zone
+    final scale = tileSide / totalModules;
+    final ox = col * cellW + (cellW - tileSide) / 2;
+    final oy = row * cellH + (cellH - tileSide) / 2;
+    return (x: ox + (2 + minQuietZone) * scale, y: oy + (2 + minQuietZone) * scale);
+  }
+
+  testWidgets('single tile fills the canvas edge to edge (no dead margin)', (
     tester,
   ) async {
-    const canvasPx = 116; // version 1 → 29 modules → ppm 4
+    // Canvas 116, single layout: the tile spans the full canvas (only the
+    // quiet zone sits at the very edge), so a pixel near the canvas edge is
+    // white — the old integer-step renderer left a ~32px dead margin there.
+    const canvasPx = 116;
     final data = (await tester.runAsync(
       () => rasterize(
         QrGridPainter(
@@ -64,24 +89,54 @@ void main() {
       ),
     ))!;
 
-    // Quiet zone 4 → module (2,2) sits at pixel (2+4)*4 = 24, centered in the
-    // 52px tile (tileSide=(5+8)*4) inside the 116px canvas → offset (116-52)/2.
-    const ox = (canvasPx - 52) ~/ 2; // 32
-    final moduleX = ox + (2 + 4) * 4; // 56
-    final moduleY = ox + (2 + 4) * 4;
-
-    // The module block is white and exactly 4×4 px…
-    expect(pixel(data, canvasPx, moduleX, moduleY), const Color(0xFFFFFFFF));
-    expect(
-      pixel(data, canvasPx, moduleX + 3, moduleY + 3),
-      const Color(0xFFFFFFFF),
-    );
-    // …and a neighbouring pixel inside the tile's quiet zone is espresso.
-    expect(pixel(data, canvasPx, ox + 1, ox + 1), QrGridPainter.espresso);
-    // A module that should be light stays espresso.
-    expect(pixel(data, canvasPx, moduleX + 4, moduleY), QrGridPainter.espresso);
-    // The canvas corner is espresso.
+    final center = moduleCenter(canvasPx, qrc.LayoutId.single, 0, 0);
+    // The dark module is white at its (fractional) center…
+    expect(pixel(data, canvasPx, center.x.round(), center.y.round()),
+        const Color(0xFFFFFFFF));
+    // …and it spans ~8.9px (scale 116/13), so a pixel at x=60 that sat in the
+    // dead margin of the old 4px-module renderer is now inside the module.
+    expect(pixel(data, canvasPx, 60, center.y.round()), const Color(0xFFFFFFFF));
+    // The canvas corner is in the quiet zone → espresso.
     expect(pixel(data, canvasPx, 1, 1), QrGridPainter.espresso);
+  });
+
+  testWidgets('tiles scale linearly with the canvas, not in integer steps', (
+    tester,
+  ) async {
+    // Doubling the canvas must ~double the module position: continuous
+    // scaling. The old renderer floored the px/module, so two canvases within
+    // one module step rendered identical tile sizes.
+    Future<({int x, int y})> moduleAt(int canvasPx) async {
+      final data = (await tester.runAsync(
+        () => rasterize(
+          QrGridPainter(
+            tiles: [singleModuleMatrix()],
+            layout: qrc.LayoutId.single,
+            version: 1,
+          ),
+          canvasPx.toDouble(),
+          1.0,
+        ),
+      ))!;
+      final c = moduleCenter(canvasPx, qrc.LayoutId.single, 0, 0);
+      final x = c.x.round();
+      final y = c.y.round();
+      // The module really is painted there (not just derived on paper).
+      expect(
+        pixel(data, canvasPx, x, y),
+        const Color(0xFFFFFFFF),
+        reason: 'module must be painted at the linear-scaled position',
+      );
+      return (x: x, y: y);
+    }
+
+    final small = await moduleAt(116);
+    final large = await moduleAt(232);
+    // 116 → module ≈ 53.5; 232 → module ≈ 107.1 (linear ~2×).
+    expect(large.x, greaterThan(small.x * 2 - 2));
+    expect(large.x, lessThan(small.x * 2 + 2));
+    expect(large.y, greaterThan(small.y * 2 - 2));
+    expect(large.y, lessThan(small.y * 2 + 2));
   });
 
   testWidgets('null tiles leave their cell on the espresso background', (
@@ -101,26 +156,6 @@ void main() {
     );
   });
 
-  /// Module center of the single dark module of [singleModuleMatrix] in cell
-  /// (col, row) of a [layout] split canvas: cell geometry mirrors the painter
-  /// (cellW = canvas ~/ cols, cellH = canvas ~/ rows, ppm = min side ~/ 29 for
-  /// version 1, tileSide = (5 + 2*4) * ppm), plus the 4-module quiet zone.
-  ({int x, int y}) moduleCenter(
-    int canvasPx,
-    qrc.LayoutId layout,
-    int col,
-    int row,
-  ) {
-    final grid = qrc.layouts[layout]!;
-    final cellW = canvasPx ~/ grid.cols;
-    final cellH = canvasPx ~/ grid.rows;
-    final ppm = (cellW < cellH ? cellW : cellH) ~/ 29; // version 1 modules
-    final tileSide = (5 + 8) * ppm;
-    final ox = col * cellW + (cellW - tileSide) ~/ 2;
-    final oy = row * cellH + (cellH - tileSide) ~/ 2;
-    return (x: ox + (2 + 4) * ppm, y: oy + (2 + 4) * ppm);
-  }
-
   testWidgets('row2 paints two tiles side by side', (tester) async {
     const canvasPx = 232; // two 116px cells side by side
     final data = (await tester.runAsync(
@@ -138,11 +173,16 @@ void main() {
     final slot0 = moduleCenter(canvasPx, qrc.LayoutId.row2, 0, 0);
     final slot1 = moduleCenter(canvasPx, qrc.LayoutId.row2, 1, 0);
     // Both dark modules are painted…
-    expect(pixel(data, canvasPx, slot0.x, slot0.y), const Color(0xFFFFFFFF));
-    expect(pixel(data, canvasPx, slot1.x, slot1.y), const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot0.x.round(), slot0.y.round()),
+        const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot1.x.round(), slot1.y.round()),
+        const Color(0xFFFFFFFF));
     // …side by side: slot 0 to the LEFT of slot 1 on the same row.
     expect(slot1.x, greaterThan(slot0.x));
     expect(slot1.y, slot0.y);
+    // Tiles fill their cells: slot 1's module sits in the right half, and the
+    // quiet-zone band between the two tiles is thin (not a large dead gap).
+    expect(slot1.x, greaterThan(canvasPx / 2));
   });
 
   testWidgets('column2 paints stacked', (tester) async {
@@ -162,22 +202,22 @@ void main() {
     final slot0 = moduleCenter(canvasPx, qrc.LayoutId.column2, 0, 0);
     final slot1 = moduleCenter(canvasPx, qrc.LayoutId.column2, 0, 1);
     // Both dark modules are painted…
-    expect(pixel(data, canvasPx, slot0.x, slot0.y), const Color(0xFFFFFFFF));
-    expect(pixel(data, canvasPx, slot1.x, slot1.y), const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot0.x.round(), slot0.y.round()),
+        const Color(0xFFFFFFFF));
+    expect(pixel(data, canvasPx, slot1.x.round(), slot1.y.round()),
+        const Color(0xFFFFFFFF));
     // …stacked: slot 0 ABOVE slot 1 on the same column.
     expect(slot1.y, greaterThan(slot0.y));
     expect(slot1.x, slot0.x);
   });
 
   testWidgets('physical-pixel layout sizes modules to the DPR', (tester) async {
-    // Logical 360 at DPR 3 → physical 1080; a V27 tile (125 modules incl.
-    // quiet zone) gets ppm = 1080 ~/ 125 = 8 physical px (vs 2 logical at
-    // DPR 1). The module must land at the physical-pixel position × 8.
+    // Logical 360 at DPR 3 → physical 1080; a single V27 tile fills the full
+    // canvas, so a module spans 1080/133 ≈ 8.1 physical px (vs 2 logical at
+    // DPR 1). The module lands at the physical-pixel position / dpr in the
+    // logical raster.
     const dpr = 3.0;
     const logical = 360.0;
-    // Rasterize at the LOGICAL size (toImage is 1:1 with the picture's
-    // logical space): the physical layout places the module at
-    // physicalCoord / dpr in that space.
     final data = (await tester.runAsync(
       () => rasterize(
         QrGridPainter(
@@ -187,20 +227,19 @@ void main() {
           devicePixelRatio: dpr,
         ),
         logical,
-        1.0, // 1:1 raster — the painter's own scale(1/dpr) does the rest
+        1.0,
       ),
     ))!;
 
-    // version 27 → modules = 133; ppm = (360*3) ~/ 133 = 8 physical px.
-    // Tile side = (5 + 8) * 8 = 104; offset = (1080 - 104) ~/ 2 = 488.
-    // Module (2,2) at physical x = 488 + (2+4)*8 = 536 → logical 536/3 ≈ 179.
-    final moduleX = (536 / dpr).round();
-    final moduleY = (536 / dpr).round();
-
-    expect(pixel(data, 360, moduleX, moduleY), const Color(0xFFFFFFFF));
-    // The physical layout makes the module 8 device px wide — strictly larger
-    // than the 2 logical px the logical-only floor would give (2 * 3 = 6).
-    expect(pixel(data, 360, 2, 2), QrGridPainter.espresso);
+    // version 27 → matrix 125 + quiet zone 8 = 133 modules. Tile side = 1080
+    // physical px; module (2,2) of the 5×5 test matrix sits at quiet zone 4 +
+    // row 2 = 6 modules × (1080/13) ≈ 498.5 physical px → logical ≈ 166.
+    final moduleLogical = ((2 + minQuietZone) * (1080 / 13) / dpr).round();
+    expect(pixel(data, logical.round(), moduleLogical, moduleLogical),
+        const Color(0xFFFFFFFF));
+    // The physical layout makes the module span ~8 physical px — strictly
+    // larger than the 2 logical px the logical-only render would give.
+    expect(pixel(data, logical.round(), 2, 2), QrGridPainter.espresso);
   });
 
   testWidgets('a real QR painted by the run-batched painter decodes back', (
@@ -208,15 +247,14 @@ void main() {
   ) async {
     // Encode a real tile payload, paint it the way the broadcast stage does,
     // rasterize, and decode with the same zxing2 reader the receiver's isolate
-    // pool uses — the proof that the optimized painter still renders
+    // pool uses — the proof that continuous scaling still renders
     // camera-decodable QRs.
     final payload = Uint8List.fromList(List<int>.generate(40, (i) => i % 251));
     final matrix = encodeQrBytes(payload, version: 5);
     const dpr = 2.0;
     const logical = 180.0;
-    // version 5 → modules = 45; ppm = (180*2) ~/ 45 = 8 physical px → the tile
-    // fills the 180-logical canvas edge to edge (8*45 = 360 phys = 180 log).
-    // Rasterize at the logical size so the QR fills the image.
+    // version 5 → 45 modules incl. quiet zone; the tile fills the 180-logical
+    // canvas edge to edge (45 × 8 physical px = 360 phys = 180 logical).
     final data = (await tester.runAsync(
       () => rasterize(
         QrGridPainter(
