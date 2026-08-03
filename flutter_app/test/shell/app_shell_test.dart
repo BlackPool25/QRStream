@@ -200,4 +200,41 @@ void main() {
     expect(find.textContaining('File saved'), findsOneWidget);
     expect(find.textContaining('notes.txt'), findsOneWidget);
   });
+
+  testWidgets('rotation across the 600dp breakpoint preserves the SendView State',
+      (tester) async {
+    // Regression: crossing the compact/wide breakpoint must NOT recreate the
+    // destination State — the shell keeps the body at a stable element path
+    // (rail slot at index 0, destination at index 1) so Flutter reuses the
+    // existing SendView State instead of resetting it to the home screen.
+    await pumpShell(tester, linuxOnly: false, width: 390); // portrait phone
+    expect(find.byType(SendView), findsOneWidget);
+    final before =
+        tester.state<State<SendView>>(find.byType(SendView)).hashCode;
+
+    // Rotate to landscape: crosses 600dp → the wide (rail) layout branch.
+    tester.view.physicalSize = const Size(800, 390);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(SendView), findsOneWidget);
+    final after =
+        tester.state<State<SendView>>(find.byType(SendView)).hashCode;
+    expect(
+      after,
+      before,
+      reason: 'SendView State must survive the breakpoint swap (rotation)',
+    );
+
+    // Rotate back to portrait: same State still alive.
+    tester.view.physicalSize = const Size(390, 800);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    final rotatedBack =
+        tester.state<State<SendView>>(find.byType(SendView)).hashCode;
+    expect(
+      rotatedBack,
+      before,
+      reason: 'SendView State must survive rotation in both directions',
+    );
+  });
 }

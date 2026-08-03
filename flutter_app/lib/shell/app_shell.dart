@@ -77,45 +77,51 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final body = _buildBody();
+        final wide = constraints.maxWidth >= _compactBreakpoint;
         final destinations = _Destination.values;
         final content = Column(
           children: [
             if (!_immersive) const _BrandHeader(),
-            Expanded(child: body),
+            Expanded(child: _buildBody()),
           ],
         );
-        if (constraints.maxWidth < _compactBreakpoint) {
-          return Scaffold(
-            body: content,
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              destinations: [
-                for (final d in destinations)
-                  NavigationDestination(icon: Icon(d.icon), label: d.label),
-              ],
-            ),
-          );
-        }
         return Scaffold(
           body: Row(
             children: [
-              NavigationRail(
-                selectedIndex: _index,
-                onDestinationSelected: (i) => setState(() => _index = i),
-                extended: constraints.maxWidth >= _railExtendedBreakpoint,
-                destinations: [
-                  for (final d in destinations)
-                    NavigationRailDestination(
-                      icon: Icon(d.icon),
-                      label: Text(d.label),
-                    ),
-                ],
-              ),
+              // The rail slot is ALWAYS at index 0 — NavigationRail when wide,
+              // an empty placeholder when narrow — so the destination at index
+              // 1 keeps the same element path across the 600dp breakpoint.
+              // Rotating a phone crosses it; a stable path lets Flutter reuse
+              // the existing State instead of recreating SendView/SettingsView
+              // and resetting their state.
+              if (wide)
+                NavigationRail(
+                  selectedIndex: _index,
+                  onDestinationSelected: (i) => setState(() => _index = i),
+                  extended: constraints.maxWidth >= _railExtendedBreakpoint,
+                  destinations: [
+                    for (final d in destinations)
+                      NavigationRailDestination(
+                        icon: Icon(d.icon),
+                        label: Text(d.label),
+                      ),
+                  ],
+                )
+              else
+                const SizedBox.shrink(),
               Expanded(child: content),
             ],
           ),
+          bottomNavigationBar: wide
+              ? null
+              : NavigationBar(
+                  selectedIndex: _index,
+                  onDestinationSelected: (i) => setState(() => _index = i),
+                  destinations: [
+                    for (final d in destinations)
+                      NavigationDestination(icon: Icon(d.icon), label: d.label),
+                  ],
+                ),
         );
       },
     );

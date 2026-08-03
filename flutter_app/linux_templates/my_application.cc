@@ -21,7 +21,9 @@ static void window_method_call_handler(FlMethodChannel* channel,
                                       FlMethodCall* method_call,
                                       gpointer user_data) {
   GtkWindow* window = GTK_WINDOW(user_data);
-  g_autoptr(FlValue) args = fl_method_call_get_args(method_call);
+  // BORROWED reference: FlMethodCall owns args (fl_method_call_new refs it,
+  // dispose unrefs it) — g_autoptr here would double-unref and crash.
+  FlValue* args = fl_method_call_get_args(method_call);
   const gchar* method = fl_method_call_get_name(method_call);
   gboolean handled = FALSE;
 
