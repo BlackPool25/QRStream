@@ -39,6 +39,14 @@ conventional commits on release.
   the whole `com.google.mlkit` tree (MlKitInitProvider dependency graph).
 - Release build previously crashed because the Linux bundle lacked the Rust
   codec; it now ships `lib/libqr_transfer_rust.so`.
+- Pressing Fullscreen on Linux no longer crashes the app: the
+  `qrstream/window` channel handler double-unref'd the method-call arguments
+  (borrowed reference wrapped in `g_autoptr`), tripping a GLib refcount
+  assertion; the arguments are now treated as the borrowed reference they are.
+- Rotating the phone while in Send or Settings no longer resets to the home
+  screen: the destination body kept a stable element path across the 600dp
+  breakpoint, so the shell reuses the existing view State instead of
+  recreating it.
 
 ## [1.0.0] — 2026-08-02
 
