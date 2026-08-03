@@ -1,6 +1,6 @@
 {
   "name": "qr-data-transfer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "QRStream — offline QR-code file-transfer PWA (Vite + Preact + TS)",
   "scripts": {
     "test": "vitest run",

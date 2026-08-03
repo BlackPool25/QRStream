@@ -6,6 +6,8 @@ conventional commits on release.
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-08-03
+
 ### Added
 
 - Brand header (QRStream logo + wordmark) in the app shell; it hides while
@@ -22,6 +24,15 @@ conventional commits on release.
 
 ### Fixed
 
+- The sender QR grid now re-flows to fit the viewport: rotating or resizing
+  the device mid-broadcast re-picks the tile layout so QRs fill the screen
+  instead of sitting small in the center, keeping modules at whole pixels.
+- After receiving a file, "Scan another" stays reachable on short screens —
+  the saved card scrolls instead of clipping the button below the fold.
+- A completed transfer now survives screen rotation and tab switches, and is
+  restored after the app is killed in the background: the receive session
+  lives in an app-scoped controller and the saved file's metadata is
+  restored via Flutter state restoration.
 - Release build crashed at launch on some devices: R8 keep rules now cover
   the whole `com.google.mlkit` tree (MlKitInitProvider dependency graph).
 - Release build previously crashed because the Linux bundle lacked the Rust
