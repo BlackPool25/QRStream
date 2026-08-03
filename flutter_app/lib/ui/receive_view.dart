@@ -435,27 +435,33 @@ class _ReceiveViewState extends State<ReceiveView> {
   }) {
     final t = Theme.of(c);
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 48, color: t.colorScheme.primary),
-                const SizedBox(height: 16),
-                Text(title, style: t.textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(
-                  body,
-                  style: t.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                ?bodyWidget,
-                if (action != null) ...[const SizedBox(height: 16), action],
-                if (trailing != null) ...[const SizedBox(height: 8), trailing],
-              ],
+      // shrinkWrap keeps tall screens identical (the viewport hugs the card
+      // and Center still centers it), while short screens scroll so the
+      // trailing action (e.g. 'Scan another') stays reachable instead of
+      // overflowing below the fold.
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 48, color: t.colorScheme.primary),
+                  const SizedBox(height: 16),
+                  Text(title, style: t.textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text(
+                    body,
+                    style: t.textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  ?bodyWidget,
+                  if (action != null) ...[const SizedBox(height: 16), action],
+                  if (trailing != null) ...[const SizedBox(height: 8), trailing],
+                ],
+              ),
             ),
           ),
         ),

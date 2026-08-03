@@ -288,6 +288,123 @@ void main() {
     });
   }
 
+  testWidgets(
+    'saved card on a short screen: Scan another stays reachable by scrolling '
+    'and starts a fresh session',
+    (tester) async {
+      // 480x360 logical @ dpr 3 — a short body (a phone minus the shell
+      // chrome): the saved card (~380dp tall) cannot fit, so pre-fix the
+      // card overflowed and the trailing button was clipped below the fold.
+      tester.view.physicalSize = const Size(1440, 1080);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final fx = Fixture('text-256k');
+      final results = <DecodeResult>[
+        DecodeResult(bytes: fx.metaFrame),
+        for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+      ];
+      final camera = FakeCameraService(1);
+      final decoder = FakeFrameDecoder(results);
+      final fake = FakeSaver();
+
+      await tester.pumpWidget(
+        _harness(
+          camera: camera,
+          saver: Saver(saveFn: fake.save, openFn: fake.open),
+          decoder: decoder,
+        ),
+      );
+      await tester.tap(find.text('Start scanning'));
+      await tester.pump();
+      await _pumpUntil(
+        tester,
+        () => find.text('Save file').evaluate().isNotEmpty,
+        timeout: const Duration(seconds: 90),
+      );
+      await tester.tap(find.text('Save file'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('File saved'), findsOneWidget);
+
+      // The trailing button lays out below the fold at this size; scrolling
+      // the card must bring it into reach.
+      expect(find.text('Scan another'), findsOneWidget);
+      expect(
+        tester.getBottomLeft(find.text('Scan another')).dy,
+        greaterThan(360.0),
+        reason: 'the button starts below the fold — the card must scroll',
+      );
+      await tester.ensureVisible(find.text('Scan another'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scan another'));
+      await tester.pump();
+      await tester.pump();
+
+      // Tapping it returns to the idle card.
+      expect(find.text('Start scanning'), findsOneWidget);
+      expect(find.textContaining('File saved'), findsNothing);
+
+      // A fresh session starts clean: no stale VERIFIED/result, and the
+      // camera is driven again.
+      await tester.tap(find.text('Start scanning'));
+      await tester.pump();
+      expect(camera.started, isTrue);
+      expect(find.text('Start scanning'), findsNothing);
+      expect(find.text('Save file'), findsNothing);
+      expect(find.textContaining('VERIFIED'), findsNothing);
+      expect(find.text('SCANNING'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'saved card on a tall screen: Scan another is visible without scrolling',
+    (tester) async {
+      // 480x853 logical @ dpr 3 — plenty of room for the card: the layout
+      // must render exactly like pre-fix (button on-screen, no scrolling).
+      tester.view.physicalSize = const Size(1440, 2560);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final fx = Fixture('random-1k');
+      final results = <DecodeResult>[
+        DecodeResult(bytes: fx.metaFrame),
+        for (final frame in fx.dataFrames) DecodeResult(bytes: frame),
+      ];
+      final camera = FakeCameraService(1);
+      final fake = FakeSaver();
+
+      await tester.pumpWidget(
+        _harness(
+          camera: camera,
+          saver: Saver(saveFn: fake.save, openFn: fake.open),
+          decoder: FakeFrameDecoder(results),
+        ),
+      );
+      await tester.tap(find.text('Start scanning'));
+      await tester.pump();
+      await _pumpUntil(
+        tester,
+        () => find.text('Save file').evaluate().isNotEmpty,
+        timeout: const Duration(seconds: 90),
+      );
+      await tester.tap(find.text('Save file'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('File saved'), findsOneWidget);
+
+      // Reachable without any scrolling: the tap must land (a miss would
+      // fail with a warning).
+      expect(find.text('Scan another'), findsOneWidget);
+      await tester.tap(find.text('Scan another'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Start scanning'), findsOneWidget);
+    },
+  );
+
   testWidgets('a failed open surfaces a SnackBar, never an unhandled error', (
     tester,
   ) async {
